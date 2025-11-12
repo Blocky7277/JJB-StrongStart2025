@@ -16,7 +16,8 @@ export default defineManifest({
   },
   permissions: [
     'storage',
-    'activeTab'
+    'activeTab',
+    'tabs'
   ],
   host_permissions: [
     "https://www.amazon.com/*"

@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Smart Shopping Assistant</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem;
+        }
+
+        .container {
+            background: white;
+            border-radius: 24px;
+            padding: 3rem;
+            max-width: 800px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 1rem;
+        }
+
+        .subtitle {
+            font-size: 1.25rem;
+            color: #666;
+            margin-bottom: 2rem;
+        }
+
+        .instructions {
+            background: #f8f9fa;
+            border-radius: 16px;
+            padding: 2rem;
+            margin-bottom: 2rem;
+        }
+
+        .step {
+            display: flex;
+            align-items: flex-start;
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .step:last-child {
+            margin-bottom: 0;
+        }
+
+        .step-number {
+            flex-shrink: 0;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 1.25rem;
+        }
+
+        .step-content h3 {
+            color: #1a1a1a;
+            margin-bottom: 0.5rem;
+        }
+
+        .step-content p {
+            color: #666;
+            line-height: 1.6;
+        }
+
+        .code {
+            background: #1a1a1a;
+            color: #10b981;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9rem;
+        }
+
+        .buttons {
+            display: flex;
+            gap: 1rem;
+            margin-top: 2rem;
+        }
+
+        .btn {
+            flex: 1;
+            padding: 1rem 2rem;
+            border-radius: 12px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            transition: all 0.3s ease;
+            border: none;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-secondary {
+            background: white;
+            color: #667eea;
+            border: 2px solid #667eea;
+        }
+
+        .btn-secondary:hover {
+            background: #f8f9fa;
+        }
+
+        .status {
+            background: #e7f5ff;
+            border: 2px solid #74c0fc;
+            border-radius: 12px;
+            padding: 1rem;
+            margin-bottom: 2rem;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .status-icon {
+            font-size: 1.5rem;
+        }
+
+        .status-text {
+            color: #1864ab;
+            font-weight: 500;
+        }
+
+        .features {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-top: 2rem;
+        }
+
+        .feature {
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            border-radius: 12px;
+            padding: 1.5rem;
+            text-align: center;
+        }
+
+        .feature-icon {
+            font-size: 2.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .feature h4 {
+            color: #1a1a1a;
+            margin-bottom: 0.25rem;
+        }
+
+        .feature p {
+            color: #666;
+            font-size: 0.875rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎯 Smart Shopping Assistant</h1>
+        <p class="subtitle">Test Your Chrome Extension Onboarding</p>
+
+        <div class="status">
+            <span class="status-icon">✅</span>
+            <span class="status-text">Development server is running on port 5173</span>
+        </div>
+
+        <div class="instructions">
+            <h2 style="margin-bottom: 1.5rem; color: #1a1a1a;">How to Test the Extension</h2>
+
+            <div class="step">
+                <div class="step-number">1</div>
+                <div class="step-content">
+                    <h3>Load the Extension</h3>
+                    <p>In the file dialog, navigate to: <br>
+                    <span class="code">C:\Users\ugoch\OneDrive\Desktop\strong_start_project\JJB-StrongStart2025\dist</span><br>
+                    and click "Select Folder"</p>
+                </div>
+            </div>
+
+            <div class="step">
+                <div class="step-number">2</div>
+                <div class="step-content">
+                    <h3>Find the Extension Icon</h3>
+                    <p>Look for the extension icon in your Chrome toolbar (top right, near the address bar). You may need to click the puzzle piece icon to pin it.</p>
+                </div>
+            </div>
+
+            <div class="step">
+                <div class="step-number">3</div>
+                <div class="step-content">
+                    <h3>Open the Popup</h3>
+                    <p>Click the extension icon to open the popup. The onboarding experience will start automatically if it's your first time!</p>
+                </div>
+            </div>
+
+            <div class="step">
+                <div class="step-number">4</div>
+                <div class="step-content">
+                    <h3>Experience the Flow</h3>
+                    <p>Go through the 4-step onboarding:
+                    <br>• Welcome screen
+                    <br>• Goal selection
+                    <br>• Swipe products (Tinder-style!)
+                    <br>• Completion celebration</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="features">
+            <div class="feature">
+                <div class="feature-icon">🎯</div>
+                <h4>Goal Selection</h4>
+                <p>Interactive multi-select</p>
+            </div>
+            <div class="feature">
+                <div class="feature-icon">👆</div>
+                <h4>Swipe Training</h4>
+                <p>Tinder-style interface</p>
+            </div>
+            <div class="feature">
+                <div class="feature-icon">✨</div>
+                <h4>Smooth Animations</h4>
+                <p>20+ custom effects</p>
+            </div>
+        </div>
+
+        <div class="buttons">
+            <a href="chrome://extensions/" class="btn btn-primary" target="_blank">
+                <span>🔧</span>
+                <span>Open Extensions Page</span>
+            </a>
+            <a href="https://www.amazon.com" class="btn btn-secondary" target="_blank">
+                <span>🛒</span>
+                <span>Visit Amazon</span>
+            </a>
+        </div>
+
+        <p style="margin-top: 2rem; color: #999; text-align: center; font-size: 0.875rem;">
+            💡 Tip: To reset and see the onboarding again, click the Settings button in the main popup
+        </p>
+    </div>
+
+    <script>
+        // Add some interactivity
+        document.querySelectorAll('.btn').forEach(btn => {
+            btn.addEventListener('mouseenter', function() {
+                this.style.transform = 'translateY(-2px)';
+            });
+            btn.addEventListener('mouseleave', function() {
+                this.style.transform = 'translateY(0)';
+            });
+        });
+
+        // Show success message when page loads
+        console.log('%c🎉 Smart Shopping Assistant Test Page Loaded!', 'color: #667eea; font-size: 20px; font-weight: bold;');
+        console.log('%c✅ Development server is running', 'color: #10b981; font-size: 14px;');
+        console.log('%c📦 Extension built in: dist/', 'color: #f59e0b; font-size: 14px;');
+    </script>
+</body>
+</html>
+
