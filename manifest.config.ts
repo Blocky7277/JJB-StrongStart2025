@@ -27,4 +27,8 @@ export default defineManifest({
     matches: ['https://www.amazon.com/*'],
     run_at: "document_idle"
   }],
+  background: {
+    service_worker: "src/background.ts",
+    type: "module"
+  }
 })

@@ -11,6 +11,7 @@ import { PurchaseModal } from './purchaseModal'
 export class CartInterceptor {
   private modal: PurchaseModal
   private isIntercepting = false
+  private allowNextClick = false
   private originalAddToCart: (() => void) | null = null
 
   constructor() {
@@ -76,6 +77,12 @@ export class CartInterceptor {
    */
   private interceptButton(button: HTMLElement): void {
     button.addEventListener('click', async (e) => {
+      // Allow click to pass through if we've flagged it
+      if (this.allowNextClick) {
+        this.allowNextClick = false
+        return
+      }
+
       // Only intercept if we're on a product page
       if (!ProductDetector.isProductPage()) return
 
@@ -87,7 +94,7 @@ export class CartInterceptor {
       // Check if user has completed onboarding
       const hasPreferences = await this.checkPreferences()
       if (!hasPreferences) {
-        this.showOnboardingPrompt()
+        this.showOnboardingPrompt(button)
         return
       }
 
@@ -110,7 +117,7 @@ export class CartInterceptor {
   /**
    * Show onboarding prompt
    */
-  private showOnboardingPrompt(): void {
+  private showOnboardingPrompt(button: HTMLElement): void {
     const overlay = document.createElement('div')
     overlay.style.cssText = `
       position: fixed;
@@ -175,17 +182,25 @@ export class CartInterceptor {
 
     document.body.appendChild(overlay)
 
+    // Setup button - opens extension popup
     overlay.querySelector('#setup-btn')?.addEventListener('click', () => {
-      chrome.runtime.sendMessage({ action: 'openPopup' })
-      overlay.remove()
+        overlay.remove()
+        // Send message to open the extension popup (like clicking the icon)
+        chrome.runtime.sendMessage({ action: 'openPopup' })
     })
 
+    // Skip button - proceeds with adding to cart
     overlay.querySelector('#skip-btn')?.addEventListener('click', () => {
       overlay.remove()
+      // Proceed with the original purchase action
+      this.proceedWithPurchase(button)
     })
 
+    // Click outside to close
     overlay.addEventListener('click', (e) => {
-      if (e.target === overlay) overlay.remove()
+      if (e.target === overlay) {
+        overlay.remove()
+      }
     })
   }
 
@@ -242,18 +257,13 @@ export class CartInterceptor {
    * Proceed with the original purchase
    */
   private proceedWithPurchase(button: HTMLElement): void {
-    // Remove our interception temporarily
-    const newButton = button.cloneNode(true) as HTMLElement
-    button.parentNode?.replaceChild(newButton, button)
+    // Set flag to allow next click
+    this.allowNextClick = true
     
-    // Click the new button (without our listener)
-    newButton.click()
-    
-    // Re-attach listener after a delay
+    // Trigger a click on the button
     setTimeout(() => {
-      this.interceptButton(newButton)
-      newButton.setAttribute('data-intercepted', 'true')
-    }, 1000)
+      button.click()
+    }, 100)
   }
 
   /**
@@ -286,4 +296,3 @@ export class CartInterceptor {
     }
   }
 }
-
