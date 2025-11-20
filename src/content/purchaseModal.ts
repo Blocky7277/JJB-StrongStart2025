@@ -17,7 +17,8 @@ export class PurchaseModal {
     alternatives: ProductRecommendation[],
     onProceed: () => void,
     onCancel: () => void,
-    onAlternativeClick?: (alternativeId: string) => void
+    onAlternativeClick?: (alternativeId: string) => void,
+    onRating?: (rating: number) => void
   ): void {
     this.remove() // Remove any existing modal
 
@@ -181,6 +182,54 @@ export class PurchaseModal {
           gap: 0.5rem;
         }
 
+        .rating-section {
+          margin-bottom: 1.5rem;
+          text-align: center;
+          padding: 1.5rem;
+          background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+          border-radius: 16px;
+        }
+
+        .rating-label {
+          font-size: 1rem;
+          font-weight: 600;
+          color: #1a1a1a;
+          margin-bottom: 1rem;
+        }
+
+        .star-rating {
+          display: flex;
+          justify-content: center;
+          gap: 0.5rem;
+        }
+
+        .star-button {
+          background: none;
+          border: none;
+          cursor: pointer;
+          padding: 0.25rem;
+          transition: transform 0.2s ease;
+        }
+
+        .star-button:hover {
+          transform: scale(1.15);
+        }
+
+        .star-button:active {
+          transform: scale(0.95);
+        }
+
+        .star-button svg {
+          display: block;
+        }
+
+        .rating-text {
+          margin-top: 0.75rem;
+          font-size: 0.875rem;
+          color: #666;
+          font-weight: 500;
+        }
+
         .alternatives-section {
           margin-bottom: 1.5rem;
         }
@@ -304,6 +353,38 @@ export class PurchaseModal {
             `).join('')}
           </div>
 
+          <div class="rating-section">
+            <div class="rating-label">How much do you like this product?</div>
+            <div class="star-rating" id="star-rating">
+              <button class="star-button" data-rating="1">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" stroke-width="2">
+                  <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+                </svg>
+              </button>
+              <button class="star-button" data-rating="2">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" stroke-width="2">
+                  <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+                </svg>
+              </button>
+              <button class="star-button" data-rating="3">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" stroke-width="2">
+                  <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+                </svg>
+              </button>
+              <button class="star-button" data-rating="4">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" stroke-width="2">
+                  <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+                </svg>
+              </button>
+              <button class="star-button" data-rating="5">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" stroke-width="2">
+                  <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+                </svg>
+              </button>
+            </div>
+            <div class="rating-text" id="rating-text">Tap a star to rate</div>
+          </div>
+
           ${alternatives.length > 0 ? `
             <div class="alternatives-section">
               <h3 class="section-title">💡 Better Alternatives Found</h3>
@@ -330,13 +411,74 @@ export class PurchaseModal {
             View Alternatives
           </button>
           <button class="action-btn btn-proceed" id="proceed-btn">
-            Add to Cart Anyway
+            Close
           </button>
         </div>
       </div>
     `
 
     document.body.appendChild(this.overlay)
+
+    // Star rating functionality
+    const starButtons = this.overlay.querySelectorAll('.star-button')
+    const ratingText = this.overlay.querySelector('#rating-text')
+    let currentRating = 0
+    let hoverRating = 0
+
+    const ratingLabels = [
+      '',
+      '😞 Not for me',
+      '😐 It\'s okay',
+      '🙂 Pretty good',
+      '😊 Really like it',
+      '🤩 Love it!'
+    ]
+
+    const updateStars = (rating: number) => {
+      starButtons.forEach((button) => {
+        const star = button as HTMLElement
+        const starRating = parseInt(star.getAttribute('data-rating') || '0')
+        const svg = star.querySelector('svg')
+        
+        if (svg) {
+          if (starRating <= rating) {
+            svg.setAttribute('fill', '#fbbf24')
+          } else {
+            svg.setAttribute('fill', 'none')
+          }
+        }
+      })
+    }
+
+    starButtons.forEach(button => {
+      button.addEventListener('click', () => {
+        const rating = parseInt(button.getAttribute('data-rating') || '0')
+        currentRating = rating
+        updateStars(rating)
+
+        // Update text
+        if (ratingText) {
+          ratingText.textContent = ratingLabels[rating]
+        }
+
+        // Call callback
+        if (onRating) {
+          onRating(rating)
+        }
+      })
+
+      // Hover effect
+      button.addEventListener('mouseenter', () => {
+        const rating = parseInt(button.getAttribute('data-rating') || '0')
+        hoverRating = rating
+        updateStars(rating)
+      })
+
+      button.addEventListener('mouseleave', () => {
+        hoverRating = 0
+        updateStars(currentRating)
+      })
+    })
 
     // Add event listeners
     this.overlay.querySelector('#proceed-btn')?.addEventListener('click', () => {
@@ -430,4 +572,3 @@ export class PurchaseModal {
     }
   }
 }
-
