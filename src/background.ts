@@ -3,7 +3,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     try {
       chrome.action.openPopup()
       sendResponse({ success: true })
-    } catch (error) {
+    } catch (error: any) {
       sendResponse({ success: false, error: error.message })
     }
     return true // Indicates we will send a response

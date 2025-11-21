@@ -24,4 +24,7 @@ export default defineConfig({
       ],
     },
   },
+  // Environment variables are loaded from .env files automatically
+  // Variables prefixed with VITE_ are exposed to client code
+  // Use import.meta.env.VITE_* to access them
 })

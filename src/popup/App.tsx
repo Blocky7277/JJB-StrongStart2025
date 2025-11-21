@@ -1,7 +1,10 @@
 import { useState, useEffect } from 'react'
+import AIAnalysisComponent from './AIAnalysisComponent'
 import OnboardingFlow from '@/components/onboarding/OnboardingFlow'
 import PreferenceEditor from '@/components/settings/PreferenceEditor'
 import { storage } from '@/utils/storage'
+import { logger } from '@/utils/logger'
+import { migrateHardcodedKeys } from '@/utils/apiKeyStorage'
 import './App.css'
 
 export default function App() {
@@ -10,7 +13,20 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false)
 
   useEffect(() => {
-    checkOnboardingStatus()
+    // Run migrations and check onboarding on mount
+    const initialize = async () => {
+      // Migrate hardcoded API keys to Chrome storage (one-time)
+      try {
+        await migrateHardcodedKeys()
+      } catch (error) {
+        logger.error('Error migrating API keys', error)
+      }
+      
+      // Check onboarding status
+      await checkOnboardingStatus()
+    }
+    
+    initialize()
   }, [])
 
   const checkOnboardingStatus = async () => {
@@ -18,7 +34,7 @@ export default function App() {
       const completed = await storage.isOnboardingCompleted()
       setIsOnboardingComplete(completed)
     } catch (error) {
-      console.error('Error checking onboarding status:', error)
+      logger.error('Error checking onboarding status', error)
       setIsOnboardingComplete(false)
     } finally {
       setIsLoading(false)
@@ -31,7 +47,6 @@ export default function App() {
 
   const handleGoToAmazon = () => {
     chrome.tabs.create({ url: 'https://www.amazon.com' })
-    // Close popup after opening Amazon so user sees the new tab
     window.close()
   }
 
@@ -73,7 +88,7 @@ export default function App() {
           <h2>Ready to Shop Smarter!</h2>
           <p>Click "Go to Amazon" below to start shopping. You can access this extension anytime by clicking the icon in your toolbar!</p>
         </div>
-        
+
         <div className="how-it-works">
           <h3 className="works-title">🔄 How It Works</h3>
           <div className="works-steps">
@@ -128,6 +143,8 @@ export default function App() {
             <li>We'll show you better alternatives based on your preferences</li>
           </ul>
         </div>
+        <AIAnalysisComponent />
+
       </div>
 
       <footer className="app-footer">

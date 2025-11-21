@@ -1,4 +1,6 @@
 import { Product, ProductRecommendation } from '@/types/onboarding'
+import { safeTextContent, escapeHTML } from '@/utils/sanitize'
+import { logger } from '@/utils/logger'
 
 export class PurchaseModal {
   private overlay: HTMLDivElement | null = null
@@ -30,12 +32,18 @@ export class PurchaseModal {
     
     // Build complete HTML template with star rating
     if (!recommendation) {
-      console.error('❌ PurchaseModal: Missing recommendation data');
+      logger.error('PurchaseModal: Missing recommendation data');
       return;
     }
 
     const { recommendation: rec, reasons, score } = recommendation;
     const badgeConfig = this.getBadgeConfig(rec);
+    
+    // Sanitize all user-generated content
+    const safeTitle = escapeHTML(safeTextContent(product.title, 200));
+    const safePrice = escapeHTML(safeTextContent(product.price, 50));
+    const safeReasons = reasons.map(r => escapeHTML(safeTextContent(r, 500)));
+    const safeInsightsSummary = insights ? escapeHTML(safeTextContent(insights.summary, 500)) : '';
     
     newOverlay.innerHTML = `
       <style>
@@ -58,8 +66,8 @@ export class PurchaseModal {
         </div>
         <div class="modal-body">
           <div style="background: #f8f9fa; border-radius: 16px; padding: 1.5rem; margin-bottom: 1.5rem;">
-            <h3 style="margin:0 0 0.5rem 0;">${product.title}</h3>
-            <div style="font-size: 1.5rem; font-weight: 700; color: #667eea;">${product.price}</div>
+            <h3 style="margin:0 0 0.5rem 0;">${safeTitle}</h3>
+            <div style="font-size: 1.5rem; font-weight: 700; color: #667eea;">${safePrice}</div>
           </div>
           
           <div style="margin-bottom: 1.5rem;">
@@ -73,13 +81,13 @@ export class PurchaseModal {
           ${insights ? `
             <div style="background: #f0f9ff; border-radius: 16px; padding: 1.5rem; margin-bottom: 1.5rem; border-left: 4px solid #3b82f6;">
               <h3 style="color: #1e40af; margin-top: 0;">🤖 AI Insights</h3>
-              <p style="color: #1e3a8a;">${insights.summary}</p>
+              <p style="color: #1e3a8a;">${safeInsightsSummary}</p>
             </div>
           ` : ''}
 
           <div style="margin-bottom: 1.5rem;">
             <h3 style="font-size: 1rem; font-weight: 600; margin-bottom: 1rem;">📊 Analysis</h3>
-            ${reasons.map(r => `<div style="background: #f3f4f6; padding: 0.75rem; border-radius: 10px; margin-bottom: 0.5rem;">${r}</div>`).join('')}
+            ${safeReasons.map(r => `<div style="background: #f3f4f6; padding: 0.75rem; border-radius: 10px; margin-bottom: 0.5rem;">${r}</div>`).join('')}
           </div>
 
           <div style="background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); border-radius: 16px; padding: 1.5rem; margin-bottom: 1.5rem; text-align: center;">
@@ -97,19 +105,26 @@ export class PurchaseModal {
           ${alternatives && alternatives.length > 0 ? `
             <div style="margin-bottom: 1.5rem;">
               <h3 style="font-size: 1rem; font-weight: 600; margin-bottom: 1rem;">💡 Better Alternatives (${alternatives.length})</h3>
-              ${alternatives.slice(0, 3).map((alt, idx) => `
-                <div class="alternative-card" data-alt-id="${alt.product.id || idx}" data-alt-url="${alt.product.url || ''}" style="background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); border-radius: 16px; padding: 1.25rem; margin-bottom: 1rem; cursor: pointer; transition: all 0.3s ease; border: 2px solid transparent;">
+              ${alternatives.slice(0, 3).map((alt, idx) => {
+                const safeAltTitle = escapeHTML(safeTextContent(alt.product.title, 200));
+                const safeAltPrice = escapeHTML(safeTextContent(alt.product.price, 50));
+                const safeAltReasons = alt.reasons.slice(0, 2).map(r => escapeHTML(safeTextContent(r, 200))).join(' • ');
+                const safeAltId = escapeHTML(safeTextContent(alt.product.id || String(idx), 100));
+                const safeAltUrl = alt.product.url ? escapeHTML(safeTextContent(alt.product.url, 500)) : '';
+                return `
+                <div class="alternative-card" data-alt-id="${safeAltId}" data-alt-url="${safeAltUrl}" style="background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); border-radius: 16px; padding: 1.25rem; margin-bottom: 1rem; cursor: pointer; transition: all 0.3s ease; border: 2px solid transparent;">
                   ${alt.savings ? `<div style="background: #10b981; color: white; padding: 0.25rem 0.75rem; border-radius: 6px; font-size: 0.875rem; font-weight: 600; margin-bottom: 0.5rem; display: inline-block;">💰 Save $${alt.savings.toFixed(2)}</div>` : ''}
                   <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.75rem;">
-                    <div style="font-weight: 600; color: #1a1a1a; font-size: 1rem; flex: 1;">${alt.product.title}</div>
-                    <div style="font-size: 1.25rem; font-weight: 700; color: #10b981; margin-left: 1rem;">${alt.product.price}</div>
+                    <div style="font-weight: 600; color: #1a1a1a; font-size: 1rem; flex: 1;">${safeAltTitle}</div>
+                    <div style="font-size: 1.25rem; font-weight: 700; color: #10b981; margin-left: 1rem;">${safeAltPrice}</div>
                   </div>
                   <div style="font-size: 0.875rem; color: #666; line-height: 1.5;">
-                    ${alt.reasons.slice(0, 2).join(' • ')}
+                    ${safeAltReasons}
                   </div>
                   <div style="margin-top: 0.5rem; font-size: 0.75rem; color: #667eea; font-weight: 600;">${(alt.score * 100).toFixed(0)}% match</div>
                 </div>
-              `).join('')}
+              `;
+              }).join('')}
             </div>
           ` : ''}
 
@@ -141,7 +156,7 @@ export class PurchaseModal {
       closeXBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         e.preventDefault();
-        console.log('✕ Close button clicked');
+        logger.debug('Close button clicked');
         // ✅ Flag as user action
         this.remove({ isUserAction: true });
         onCancel();
@@ -179,7 +194,7 @@ export class PurchaseModal {
             e.preventDefault();
             
             if (alternatives && alternatives.length > 0) {
-              console.log('🔍 View Alternatives clicked', { 
+              logger.debug('View Alternatives clicked', { 
                 alternativesCount: alternatives.length,
                 alternatives: alternatives.map(alt => ({
                   title: alt.product.title,
@@ -199,12 +214,12 @@ export class PurchaseModal {
                 // Priority 1: Use direct URL if available
                 if (alt.product.url && (alt.product.url.startsWith('http://') || alt.product.url.startsWith('https://'))) {
                   urlToOpen = alt.product.url;
-                  console.log(`   [${idx + 1}] Will open via direct URL: ${alt.product.title}`);
+                  logger.debug(`Will open via direct URL: ${alt.product.title}`, { index: idx + 1 });
                 } 
                 // Priority 2: Try Amazon ASIN (starts with B and is 10 chars)
                 else if (alt.product.id && alt.product.id.startsWith('B') && alt.product.id.length === 10) {
                   urlToOpen = `https://www.amazon.com/dp/${alt.product.id}`;
-                  console.log(`   [${idx + 1}] Will open via Amazon ASIN: ${alt.product.title}`);
+                  logger.debug(`Will open via Amazon ASIN: ${alt.product.title}`, { index: idx + 1 });
                 }
                 // Priority 3: Extract ASIN from ID if it contains one
                 else if (alt.product.id) {
@@ -212,7 +227,7 @@ export class PurchaseModal {
                   const asinMatch = alt.product.id.match(/B[A-Z0-9]{9}/);
                   if (asinMatch) {
                     urlToOpen = `https://www.amazon.com/dp/${asinMatch[0]}`;
-                    console.log(`   [${idx + 1}] Will open via extracted ASIN: ${alt.product.title}`);
+                    logger.debug(`Will open via extracted ASIN: ${alt.product.title}`, { index: idx + 1 });
                   }
                 }
                 
@@ -221,7 +236,7 @@ export class PurchaseModal {
                   // Search Amazon for the product title
                   const searchQuery = encodeURIComponent(alt.product.title);
                   urlToOpen = `https://www.amazon.com/s?k=${searchQuery}`;
-                  console.log(`   [${idx + 1}] Will open via Amazon search: ${alt.product.title}`);
+                  logger.debug(`Will open via Amazon search: ${alt.product.title}`, { index: idx + 1 });
                 }
                 
                 if (urlToOpen) {
@@ -234,10 +249,10 @@ export class PurchaseModal {
                 }
               });
               
-              console.log(`📊 Prepared ${urlsToOpen.length} URLs to open out of ${alternatives.length} alternatives`);
+              logger.debug(`Prepared ${urlsToOpen.length} URLs to open`, { total: alternatives.length });
               
               if (urlsToOpen.length === 0) {
-                console.warn('⚠️ No URLs could be generated for alternatives');
+                logger.warn('No URLs could be generated for alternatives');
                 alert(`Unable to generate URLs for alternative products.\n\nFound ${alternatives.length} alternatives but they don't have valid URLs or product IDs.\n\nYou can still rate this product or close the modal with the X button.`);
                 return; // Don't close modal - let user decide
               }
@@ -249,31 +264,30 @@ export class PurchaseModal {
               urlsToOpen.forEach((item, idx) => {
                 setTimeout(() => {
                   try {
-                    console.log(`   [${idx + 1}/${totalUrls}] Opening: ${item.title}`);
-                    console.log(`       URL: ${item.url}`);
+                    logger.debug(`Opening tab ${idx + 1}/${totalUrls}`, { title: item.title, url: item.url });
                     const newWindow = window.open(item.url, '_blank');
                     if (newWindow) {
                       openedCount++;
-                      console.log(`   ✅ Successfully opened tab ${idx + 1}/${totalUrls}`);
+                      logger.debug(`Successfully opened tab ${idx + 1}/${totalUrls}`);
                     } else {
-                      console.warn(`   ⚠️ Popup blocked for tab ${idx + 1}/${totalUrls}`);
+                      logger.warn(`Popup blocked for tab ${idx + 1}/${totalUrls}`);
                     }
                   } catch (error) {
-                    console.error(`   ❌ Error opening tab ${idx + 1}/${totalUrls}:`, error);
+                    logger.error(`Error opening tab ${idx + 1}/${totalUrls}`, error);
                   }
                   
                   // After all tabs have been attempted, show summary but KEEP modal open
                   if (idx === urlsToOpen.length - 1) {
                     setTimeout(() => {
-                      console.log(`📊 Summary: Opened ${openedCount} out of ${urlsToOpen.length} alternative tabs`);
+                      logger.debug(`Summary: Opened ${openedCount} out of ${urlsToOpen.length} alternative tabs`);
                       
                       if (openedCount === 0 && urlsToOpen.length > 0) {
-                        console.warn('⚠️ No tabs opened - popup blocker may be active');
+                        logger.warn('No tabs opened - popup blocker may be active');
                         const productList = alternatives.slice(0, 3).map(a => `• ${a.product.title}`).join('\n');
                         alert(`Popup blocker may be preventing new tabs.\n\nPlease allow popups for this site, or manually search Amazon for:\n\n${productList}`);
                       } else if (openedCount > 0) {
-                        console.log(`✅ Successfully opened ${openedCount} alternative tabs`);
-                        console.log('ℹ️ Modal remains open - you can still rate the product or close it with the X button');
+                        logger.debug(`Successfully opened ${openedCount} alternative tabs`);
+                        logger.debug('Modal remains open - user can still rate the product or close it with the X button');
                       }
                       
                       // DO NOT close modal - let user rate the product or close manually with X button
@@ -282,7 +296,7 @@ export class PurchaseModal {
                 }, idx * 200); // Stagger opens (200ms between each to avoid popup blocker)
               });
             } else {
-              console.warn('⚠️ No alternatives available to view');
+              logger.warn('No alternatives available to view');
               alert('No alternatives are available for this product.');
             }
         });
@@ -319,7 +333,7 @@ export class PurchaseModal {
         
         // Save rating to Supabase
         if (onRating) {
-          console.log('⭐ User rated product:', starRating, 'stars');
+          logger.debug('User rated product', { rating: starRating, stars: '⭐'.repeat(starRating) });
           onRating(starRating);
         }
       });
@@ -368,7 +382,7 @@ export class PurchaseModal {
         }
         
         // DO NOT close modal - let user rate the product or close manually with X button
-        console.log('ℹ️ Alternative opened - modal remains open for rating');
+        logger.debug('Alternative opened - modal remains open for rating');
       });
     });
     
@@ -399,13 +413,14 @@ export class PurchaseModal {
     // 1. It is NOT a user action (it's a system removal)
     // 2. AND it happened too fast (< 5 seconds, lowered from 10s)
     if (!isUserAction && this.lastShownAt && Date.now() - this.lastShownAt < 5000) {
-       console.error('🚨 CRITICAL: Modal closed automatically too quickly!');
-       console.error('   This implies a crash or race condition.');
-       console.error('   Caller:', caller);
+       logger.error('CRITICAL: Modal closed automatically too quickly!', {
+         message: 'This implies a crash or race condition.',
+         caller
+       });
        
        // Block removal if it looks like an error handler is trying to close it
        if (caller.includes('error') || caller.includes('catch')) {
-           console.warn('   🚫 Blocking removal to preserve error state for user.');
+           logger.warn('Blocking removal to preserve error state for user.');
            return; 
        }
     }

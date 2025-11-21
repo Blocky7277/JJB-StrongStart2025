@@ -1,10 +1,18 @@
 /**
  * Supabase Sync Service
  * Syncs all user data to Supabase for LLM analysis and insights
+ * 
+ * Features:
+ * - Improved error handling with retry logic
+ * - Rate limiting to prevent quota exhaustion
+ * - Proper logging instead of console statements
  */
 
 import { supabase } from '@/config/supabase'
 import { UserPreferences, SwipeDecision, Product } from '@/types/onboarding'
+import { logger } from '@/utils/logger'
+import { supabaseRateLimiter, RateLimitError } from '@/utils/rateLimiter'
+import { safeAsync, withRetry, isRetryableError } from '@/utils/errorHandler'
 
 export class SupabaseSync {
   private static userId: string | null = null
@@ -46,7 +54,8 @@ export class SupabaseSync {
       })
 
     if (error) {
-      console.error('Error creating user:', error)
+      logger.error('Error creating user in Supabase', error)
+      throw error
     }
   }
 
@@ -54,30 +63,46 @@ export class SupabaseSync {
    * Sync user preferences to Supabase
    */
   static async syncPreferences(preferences: UserPreferences): Promise<void> {
-    try {
+    return safeAsync(async () => {
+      // Check rate limit
+      try {
+        await supabaseRateLimiter.check('supabase-sync')
+      } catch (error) {
+        if (error instanceof RateLimitError) {
+          logger.warn('Rate limit exceeded for Supabase sync', { waitTime: error.waitTime })
+          return // Fail silently for analytics
+        }
+      }
+
       const userId = await this.initializeUser()
 
-      const { error } = await supabase
-        .from('user_preferences')
-        .upsert({
-          user_id: userId,
-          goals: preferences.goals,
-          goal_weights: preferences.goalWeights,
-          price_sensitivity: preferences.priceSensitivity,
-          category_preferences: preferences.categoryPreferences,
-          updated_at: new Date().toISOString(),
-        }, {
-          onConflict: 'user_id'
-        })
+      const { error } = await withRetry(
+        () => supabase
+          .from('user_preferences')
+          .upsert({
+            user_id: userId,
+            goals: preferences.goals,
+            goal_weights: preferences.goalWeights,
+            price_sensitivity: preferences.priceSensitivity,
+            category_preferences: preferences.categoryPreferences,
+            updated_at: new Date().toISOString(),
+          }, {
+            onConflict: 'user_id'
+          }),
+        {
+          maxRetries: 2,
+          retryDelay: 500,
+          retryable: isRetryableError,
+        }
+      )
 
       if (error) {
-        console.error('Error syncing preferences:', error)
+        logger.error('Error syncing preferences to Supabase', error)
+        throw error
       } else {
-        console.log('✅ Preferences synced to Supabase')
+        logger.debug('Preferences synced to Supabase', { userId })
       }
-    } catch (error) {
-      console.error('Error in syncPreferences:', error)
-    }
+    }, undefined, 'Failed to sync preferences') as Promise<void>
   }
 
   /**
@@ -98,12 +123,14 @@ export class SupabaseSync {
         })
 
       if (error) {
-        console.error('Error syncing swipe decision:', error)
+        logger.error('Error syncing swipe decision to Supabase', error)
+        throw error
       } else {
-        console.log('✅ Swipe decision synced to Supabase')
+        logger.debug('Swipe decision synced to Supabase', { userId, productId: decision.productId })
       }
     } catch (error) {
-      console.error('Error in syncSwipeDecision:', error)
+      logger.error('Error in syncSwipeDecision', error)
+      // Fail silently - analytics shouldn't break user flow
     }
   }
 
@@ -127,12 +154,14 @@ export class SupabaseSync {
         .insert(records)
 
       if (error) {
-        console.error('Error syncing swipe decisions:', error)
+        logger.error('Error syncing swipe decisions to Supabase', error)
+        throw error
       } else {
-        console.log(`✅ ${decisions.length} swipe decisions synced to Supabase`)
+        logger.debug(`${decisions.length} swipe decisions synced to Supabase`, { userId })
       }
     } catch (error) {
-      console.error('Error in syncAllSwipeDecisions:', error)
+      logger.error('Error in syncAllSwipeDecisions', error)
+      // Fail silently - analytics shouldn't break user flow
     }
   }
 
@@ -163,12 +192,14 @@ export class SupabaseSync {
         })
 
       if (error) {
-        console.error('Error tracking purchase attempt:', error)
+        logger.error('Error tracking purchase attempt in Supabase', error)
+        throw error
       } else {
-        console.log('✅ Purchase attempt tracked in Supabase')
+        logger.debug('Purchase attempt tracked in Supabase', { userId, productId: product.id })
       }
     } catch (error) {
-      console.error('Error in trackPurchaseAttempt:', error)
+      logger.error('Error in trackPurchaseAttempt', error)
+      // Fail silently - analytics shouldn't break user flow
     }
   }
 
@@ -196,12 +227,14 @@ export class SupabaseSync {
         })
 
       if (error) {
-        console.error('Error saving review:', error)
+        logger.error('Error saving review to Supabase', error)
+        throw error
       } else {
-        console.log('✅ Review saved to Supabase')
+        logger.debug('Review saved to Supabase', { userId, productId: product.id, rating })
       }
     } catch (error) {
-      console.error('Error in saveProductReview:', error)
+      logger.error('Error in saveProductReview', error)
+      // Fail silently - analytics shouldn't break user flow
     }
   }
 
@@ -231,7 +264,7 @@ export class SupabaseSync {
                         (reviewsResult.data?.length || 0),
       }
     } catch (error) {
-      console.error('Error fetching data for LLM:', error)
+      logger.error('Error fetching data for LLM from Supabase', error)
       return null
     }
   }

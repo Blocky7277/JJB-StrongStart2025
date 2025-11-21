@@ -3,10 +3,12 @@
  * Shows a floating icon on product pages that opens analysis when clicked
  */
 
-import { Product, ProductRecommendation } from '@/types/onboarding'
+import { Product } from '@/types/onboarding'
 import { ProductDetector } from './productDetector'
 import { ProductAnalyzer } from '@/utils/productAnalyzer'
 import { PurchaseModal } from './purchaseModal'
+import { logger } from '@/utils/logger'
+import { safeAsync } from '@/utils/errorHandler'
 
 export class CartInterceptor {
   private modal: PurchaseModal
@@ -116,14 +118,67 @@ export class CartInterceptor {
 
   // ... showOnboardingPrompt implementation (Keep your existing one, it is fine) ...
   private showOnboardingPrompt(): void {
-     // (Your existing onboarding overlay code here)
-     // It works well as implemented in your snippet.
-     const overlay = document.createElement('div');
-     // ... add styles and innerHTML ...
-     // Just ensure you append it to body and handle removal.
-     // For brevity in this fix, I am assuming the existing code block you provided.
-     console.log('Please insert your existing showOnboardingPrompt code here');
+    const overlay = document.createElement('div');
+    overlay.id = 'smartshopper-onboarding-overlay';
+
+    overlay.style.cssText = `
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.75);
+      backdrop-filter: blur(4px);
+      z-index: 99999999;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+  `  ;
+
+    overlay.innerHTML = `
+      <div style="
+        background: white;
+        padding: 2rem;
+        border-radius: 16px;
+        max-width: 400px;
+        text-align: center;
+        box-shadow: 0 4px 25px rgba(0,0,0,0.3);
+      ">
+        <h2 style="margin: 0 0 1rem; font-size: 1.75rem;">👋 Welcome!</h2>
+        <p style="font-size: 1rem; color: #444; margin-bottom: 1.25rem;">
+          Before I can analyze products, I need your shopping preferences.<br><br>
+          Click below to complete onboarding.
+        </p>
+        <button id="open-preferences-btn" style="
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          color: white;
+          padding: 0.75rem 1.5rem;
+          border-radius: 10px;
+          border: none;
+          cursor: pointer;
+          font-size: 1rem;
+        ">Open Preferences</button>
+
+        <button id="close-onboarding-overlay" style="
+          margin-top: 1rem;
+          background: transparent;
+          border: none;
+          color: #555;
+          text-decoration: underline;
+          cursor: pointer;
+        ">Cancel</button>
+      </div>
+  `  ;
+
+    document.body.appendChild(overlay);
+
+    // Attach button handlers
+    overlay.querySelector('#open-preferences-btn')?.addEventListener('click', () => {
+      chrome.runtime.sendMessage({ action: 'openPopup' });
+    });
+
+    overlay.querySelector('#close-onboarding-overlay')?.addEventListener('click', () => {
+      overlay.remove();
+    });
   }
+
 
 
   /**
@@ -142,7 +197,7 @@ export class CartInterceptor {
         throw new Error('Could not detect product details on this page.')
       }
 
-      console.log('🤖 Analyzing:', product.title)
+      logger.debug('Analyzing product', { title: product.title, id: product.id })
 
       // 2. Analyze with Timeout Race
       // This ensures we don't hang forever if the API is unresponsive
@@ -160,7 +215,7 @@ export class CartInterceptor {
       }
 
       // 3. Show Modal
-      console.log('✅ Analysis success. Opening modal...')
+      logger.debug('Analysis success. Opening modal', { productId: product.id })
       
       this.modal.show(
         product,
@@ -176,16 +231,17 @@ export class CartInterceptor {
         async (rating: number) => await this.saveProductRating(product, rating)
       )
 
-    } catch (error: any) {
-      console.error('❌ Analysis Error:', error)
+    } catch (error) {
+      logger.error('Analysis Error', error)
 
       // DEFENSIVE: Only show error toast if the modal isn't already open.
       // This prevents "Error" appearing on top of a successful result if a race condition occurred.
       const modalExists = document.querySelector('[style*="z-index: 9999999"]')
       if (!modalExists) {
-        this.showError(error.message || 'An error occurred during analysis')
+        const errorMessage = error instanceof Error ? error.message : 'An error occurred during analysis'
+        this.showError(errorMessage)
       } else {
-        console.warn('⚠️ Error caught but modal is open. Suppressing error toast.')
+        logger.warn('Error caught but modal is open. Suppressing error toast.')
       }
 
     } finally {
@@ -253,7 +309,7 @@ export class CartInterceptor {
         alternativeId
       )
     } catch (error) {
-      console.error('Error tracking purchase decision:', error)
+      logger.error('Error tracking purchase decision', error)
       // Fail silently - analytics shouldn't break user flow
     }
   }
@@ -263,21 +319,25 @@ export class CartInterceptor {
    */
   private async saveProductRating(product: Product, rating: number): Promise<void> {
     try {
-      console.log('⭐ Saving product rating to Supabase:', { product: product.title, rating })
+      logger.debug('Saving product rating to Supabase', { product: product.title, rating })
       const { SupabaseSync } = await import('@/services/supabaseSync')
       
       // Save rating as a product review
       // wouldRecommend is true if rating is 4 or 5, false otherwise
-      await SupabaseSync.saveProductReview(
-        product,
-        rating,
-        null, // No review text for now
-        rating >= 4
+      await safeAsync(
+        () => SupabaseSync.saveProductReview(
+          product,
+          rating,
+          null, // No review text for now
+          rating >= 4
+        ),
+        undefined,
+        'Failed to save product rating'
       )
       
-      console.log('✅ Product rating saved to Supabase')
+      logger.debug('Product rating saved to Supabase', { productId: product.id, rating })
     } catch (error) {
-      console.error('Error saving product rating:', error)
+      logger.error('Error saving product rating', error)
       // Fail silently - rating shouldn't break user flow
     }
   }

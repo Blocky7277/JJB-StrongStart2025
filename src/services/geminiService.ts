@@ -1,10 +1,22 @@
 /**
  * Gemini AI Service
  * Handles all AI-powered analysis using Google's Gemini API
+ * 
+ * Features:
+ * - Rate limiting to prevent quota exhaustion
+ * - Response caching to reduce redundant calls
+ * - Retry logic with exponential backoff
+ * - Input validation and error handling
  */
 
-import { GEMINI_CONFIG } from '@/config/gemini'
+import { getGeminiConfig } from '@/config/gemini'
 import { Product, UserPreferences, RecommendationCriteria } from '@/types/onboarding'
+import { logger } from '@/utils/logger'
+import { cache } from '@/utils/cache'
+import { geminiRateLimiter, RateLimitError } from '@/utils/rateLimiter'
+import { withRetry, isRetryableError, safeAsync } from '@/utils/errorHandler'
+import { GeminiMatchScoreSchema, ProductInsightsSchema, safeValidateProduct } from '@/utils/validation'
+import { z } from 'zod'
 
 interface GeminiResponse {
   candidates: Array<{
@@ -48,87 +60,119 @@ interface RecommendationAnalysis {
 
 /**
  * Call Gemini API with a prompt and 5-minute timeout protection
+ * Includes rate limiting, caching, and retry logic
  */
-async function callGemini(prompt: string): Promise<string> {
-  try {
-    console.log('📡 Calling Gemini API...', {
-      url: GEMINI_CONFIG.API_URL,
-      keyLength: GEMINI_CONFIG.API_KEY.length,
-      promptLength: prompt.length
-    })
-
-    // Create timeout promise (5 minutes for Gemini API)
-    const timeoutPromise = new Promise<never>((_, reject) => 
-      setTimeout(() => reject(new Error('Gemini API timeout after 5 minutes')), 300000)
-    )
-
-    // Create fetch promise
-    const fetchPromise = fetch(
-      `${GEMINI_CONFIG.API_URL}?key=${GEMINI_CONFIG.API_KEY}`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          contents: [
-            {
-              parts: [
-                {
-                  text: prompt,
-                },
-              ],
-            },
-          ],
-        }),
-      }
-    )
-
-    // Race between fetch and timeout
-    const response = await Promise.race([fetchPromise, timeoutPromise])
-
-    console.log('📡 Gemini API response status:', response.status, response.statusText)
-
-    if (!response.ok) {
-      const errorText = await response.text()
-      console.error('❌ Gemini API error:', {
-        status: response.status,
-        statusText: response.statusText,
-        error: errorText
-      })
-      throw new Error(`Gemini API error: ${response.status} - ${errorText}`)
+async function callGemini(prompt: string, useCache = true): Promise<string> {
+  // Generate cache key from prompt hash
+  const cacheKey = `gemini:${prompt.substring(0, 100).replace(/\s/g, '')}`
+  
+  // Check cache first
+  if (useCache) {
+    const cached = cache.get<string>(cacheKey)
+    if (cached) {
+      logger.debug('Using cached Gemini response', { cacheKey })
+      return cached
     }
-
-    const data: GeminiResponse = await response.json()
-    console.log('📥 Gemini API response data:', data)
-    
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text
-
-    if (!text) {
-      console.error('❌ No text in Gemini response:', data)
-      throw new Error('No response text from Gemini API')
-    }
-
-    console.log('✅ Gemini API response text length:', text.length)
-    return text
-  } catch (error) {
-    console.error('❌ Error calling Gemini API:', error)
-    if (error instanceof Error) {
-      console.error('Error details:', {
-        message: error.message,
-        stack: error.stack
-      })
-    }
-    throw error
   }
+
+  // Check rate limit
+  try {
+    await geminiRateLimiter.check('gemini-api')
+  } catch (error) {
+    if (error instanceof RateLimitError) {
+      logger.warn('Rate limit exceeded for Gemini API', { waitTime: error.waitTime })
+      throw error
+    }
+  }
+
+  return withRetry(
+    async () => {
+      // Get API key from secure storage
+      const config = await getGeminiConfig()
+      
+      logger.debug('Calling Gemini API', {
+        url: config.API_URL,
+        promptLength: prompt.length
+      })
+
+      // Create timeout promise (5 minutes for Gemini API)
+      const timeoutPromise = new Promise<never>((_, reject) => 
+        setTimeout(() => reject(new Error('Gemini API timeout after 5 minutes')), 300000)
+      )
+
+      // Create fetch promise
+      const fetchPromise = fetch(
+        `${config.API_URL}?key=${config.API_KEY}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            contents: [
+              {
+                parts: [
+                  {
+                    text: prompt,
+                  },
+                ],
+              },
+            ],
+          }),
+        }
+      )
+
+      // Race between fetch and timeout
+      const response = await Promise.race([fetchPromise, timeoutPromise])
+
+      logger.debug('Gemini API response received', { 
+        status: response.status, 
+        statusText: response.statusText 
+      })
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        const error = new Error(`Gemini API error: ${response.status} - ${errorText}`)
+        logger.error('Gemini API error', {
+          status: response.status,
+          statusText: response.statusText,
+          error: errorText
+        })
+        throw error
+      }
+
+      const data: GeminiResponse = await response.json()
+      
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text
+
+      if (!text) {
+        const error = new Error('No response text from Gemini API')
+        logger.error('Invalid Gemini response', { data })
+        throw error
+      }
+
+      // Cache the response (24 hour TTL)
+      if (useCache) {
+        cache.set(cacheKey, text, 24 * 60 * 60 * 1000)
+      }
+
+      logger.debug('Gemini API response received', { textLength: text.length })
+      return text
+    },
+    {
+      maxRetries: 3,
+      retryDelay: 1000,
+      exponentialBackoff: true,
+      retryable: isRetryableError,
+    }
+  )
 }
 
 /**
  * Parse JSON response from Gemini, handling markdown code blocks
  */
-function parseJSONResponse(response: string): any {
-  console.log('🔍 Parsing JSON response, length:', response.length)
-  console.log('🔍 First 200 chars:', response.substring(0, 200))
+function parseJSONResponse<T>(response: string, schema?: z.ZodSchema<T>): T {
+  logger.debug('Parsing JSON response', { length: response.length })
   
   // Remove markdown code blocks if present
   let cleaned = response.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
@@ -138,22 +182,37 @@ function parseJSONResponse(response: string): any {
   
   try {
     const parsed = JSON.parse(cleaned)
-    console.log('✅ Successfully parsed JSON')
-    return parsed
+    
+    // Validate with schema if provided
+    if (schema) {
+      const validated = schema.parse(parsed)
+      logger.debug('Successfully parsed and validated JSON')
+      return validated
+    }
+    
+    logger.debug('Successfully parsed JSON')
+    return parsed as T
   } catch (error) {
-    console.error('❌ JSON parse error:', error)
-    console.error('❌ Attempted to parse:', cleaned.substring(0, 500))
+    logger.error('JSON parse error', error)
     
     // If JSON parsing fails, try to extract JSON from the response
     const jsonMatch = cleaned.match(/\{[\s\S]*\}/)
     if (jsonMatch) {
       try {
-        console.log('🔄 Trying to extract JSON from response...')
+        logger.debug('Trying to extract JSON from response')
         const extracted = JSON.parse(jsonMatch[0])
-        console.log('✅ Successfully extracted and parsed JSON')
-        return extracted
+        
+        // Validate with schema if provided
+        if (schema) {
+          const validated = schema.parse(extracted)
+          logger.debug('Successfully extracted and validated JSON')
+          return validated
+        }
+        
+        logger.debug('Successfully extracted JSON')
+        return extracted as T
       } catch (extractError) {
-        console.error('❌ Failed to parse extracted JSON:', extractError)
+        logger.error('Failed to parse extracted JSON', extractError)
         throw new Error(`Could not parse JSON from Gemini response: ${error instanceof Error ? error.message : 'Unknown error'}`)
       }
     }
@@ -243,7 +302,7 @@ Be specific in your reasoning. Consider YOUR past behavior patterns, not just st
 Respond with ONLY valid JSON, no additional text.`
 
   const response = await callGemini(prompt)
-  return parseJSONResponse(response)
+  return parseJSONResponse<MatchScoreAnalysis>(response, GeminiMatchScoreSchema)
 }
 
 /**
@@ -252,7 +311,13 @@ Respond with ONLY valid JSON, no additional text.`
 export async function generateProductInsights(
   product: Product,
   criteria: RecommendationCriteria,
-  userPatterns: any,
+  userPatterns: {
+    avgLikedPrice: number
+    avgDislikedPrice: number
+    preferredCategories: string[]
+    avoidedCategories: string[]
+    qualityThreshold: number
+  },
   alternatives: Product[]
 ): Promise<ProductInsights> {
   const prompt = `You are a personal shopping advisor providing personalized product insights. Write as if speaking directly to the user using "you" and "your".
@@ -295,7 +360,7 @@ Be specific, actionable, and reference YOUR goals and preferences. Use natural, 
 Respond with ONLY valid JSON, no additional text.`
 
   const response = await callGemini(prompt)
-  return parseJSONResponse(response)
+  return parseJSONResponse<ProductInsights>(response, ProductInsightsSchema)
 }
 
 /**
@@ -362,10 +427,16 @@ Be specific about why each alternative is better/worse for YOU. Reference YOUR g
 Respond with ONLY valid JSON array, no additional text.`
 
   const response = await callGemini(prompt)
-  const results = parseJSONResponse(response)
+  const results = parseJSONResponse<Array<{
+    product: { title: string; priceNumeric: number; category: string; rating?: number }
+    score: number
+    reasons: string[]
+    comparison: string
+    savings?: number
+  }>>(response)
   
   // Map back to full Product objects - preserve original product data
-  return results.map((result: any) => {
+  return results.map((result) => {
     // Try to find matching product by title (exact match or contains)
     let fullProduct = alternatives.find(
       (alt) => alt.title === result.product.title || alt.id === result.product.id
@@ -409,7 +480,11 @@ Respond with ONLY valid JSON array, no additional text.`
  */
 export async function generatePersonalizedInsights(
   preferences: UserPreferences,
-  recentDecisions: any[]
+  recentDecisions: Array<{
+    product?: { title: string }
+    decision: string
+    timestamp: number
+  }>
 ): Promise<string> {
   const prompt = `You are a personal shopping advisor analyzing a user's shopping behavior to provide insights.
 

@@ -1,0 +1,213 @@
+.api-key-manager {
+  padding: 2rem;
+  max-width: 800px;
+  margin: 0 auto;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.api-key-header {
+  margin-bottom: 2rem;
+  position: relative;
+}
+
+.api-key-header h2 {
+  margin: 0 0 0.5rem 0;
+  font-size: 1.75rem;
+  color: #1a1a1a;
+}
+
+.api-key-subtitle {
+  color: #666;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  margin: 0;
+}
+
+.api-key-close {
+  position: absolute;
+  top: 0;
+  right: 0;
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  cursor: pointer;
+  color: #666;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+}
+
+.api-key-close:hover {
+  background: #f3f4f6;
+  color: #1a1a1a;
+}
+
+.api-key-loading {
+  text-align: center;
+  padding: 3rem;
+  color: #666;
+}
+
+.api-key-message {
+  padding: 1rem;
+  border-radius: 8px;
+  margin-bottom: 1.5rem;
+  font-size: 0.875rem;
+}
+
+.api-key-message-success {
+  background: #d1fae5;
+  color: #065f46;
+  border: 1px solid #10b981;
+}
+
+.api-key-message-error {
+  background: #fee2e2;
+  color: #991b1b;
+  border: 1px solid #ef4444;
+}
+
+.api-key-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+.api-key-item {
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 1.5rem;
+}
+
+.api-key-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.api-key-label label {
+  font-weight: 600;
+  color: #1a1a1a;
+  font-size: 0.875rem;
+}
+
+.api-key-status {
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.api-key-input-group {
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.api-key-input {
+  flex: 1;
+  padding: 0.75rem;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  font-family: 'Courier New', monospace;
+  transition: all 0.2s ease;
+}
+
+.api-key-input:focus {
+  outline: none;
+  border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.api-key-save-btn {
+  padding: 0.75rem 1.5rem;
+  background: #667eea;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  font-size: 0.875rem;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.api-key-save-btn:hover:not(:disabled) {
+  background: #5568d3;
+  transform: translateY(-1px);
+}
+
+.api-key-save-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.api-key-link {
+  color: #667eea;
+  font-size: 0.75rem;
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+.api-key-link:hover {
+  color: #5568d3;
+  text-decoration: underline;
+}
+
+.api-key-actions {
+  display: flex;
+  gap: 1rem;
+  justify-content: flex-end;
+  padding-top: 1.5rem;
+  border-top: 1px solid #e5e7eb;
+}
+
+.api-key-save-all-btn {
+  padding: 0.75rem 1.5rem;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  font-size: 0.875rem;
+  transition: all 0.2s ease;
+}
+
+.api-key-save-all-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+}
+
+.api-key-save-all-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.api-key-clear-btn {
+  padding: 0.75rem 1.5rem;
+  background: white;
+  color: #ef4444;
+  border: 1px solid #ef4444;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  font-size: 0.875rem;
+  transition: all 0.2s ease;
+}
+
+.api-key-clear-btn:hover:not(:disabled) {
+  background: #fee2e2;
+}
+
+.api-key-clear-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+
+
+
+

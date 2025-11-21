@@ -18,6 +18,7 @@ src/config/gemini.ts
 src/config/perplexity.ts
 .env
 .env.local
+.env.*.local
 
 # Editor directories and files
 .vscode/*

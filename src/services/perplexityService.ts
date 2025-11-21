@@ -1,10 +1,21 @@
 /**
  * Perplexity Shopping Service
  * Uses Perplexity AI to find similar products that match user preferences and goals
+ * 
+ * Features:
+ * - Rate limiting to prevent quota exhaustion
+ * - Response caching to reduce redundant calls
+ * - Retry logic with exponential backoff
+ * - Input validation and error handling
  */
 
-import { PERPLEXITY_CONFIG } from '@/config/perplexity'
+import { getPerplexityConfig } from '@/config/perplexity'
 import { Product, RecommendationCriteria } from '@/types/onboarding'
+import { logger } from '@/utils/logger'
+import { cache } from '@/utils/cache'
+import { perplexityRateLimiter, RateLimitError } from '@/utils/rateLimiter'
+import { withRetry, isRetryableError } from '@/utils/errorHandler'
+import { safeValidateProduct, ProductSchema } from '@/utils/validation'
 
 interface PerplexityResponse {
   choices: Array<{
@@ -29,22 +40,67 @@ export async function searchSimilarProducts(
     qualityThreshold: number
   }
 ): Promise<Product[]> {
+  // Validate input product
+  const validatedProduct = safeValidateProduct(targetProduct)
+  if (!validatedProduct) {
+    logger.error('Invalid product data for Perplexity search', { product: targetProduct })
+    return []
+  }
+
+  // Generate cache key
+  const cacheKey = `perplexity:${validatedProduct.id}:${validatedProduct.title.substring(0, 50)}`
+  
+  // Check cache
+  const cached = cache.get<Product[]>(cacheKey)
+  if (cached) {
+    logger.debug('Using cached Perplexity results', { cacheKey, count: cached.length })
+    return cached
+  }
+
   try {
-    console.log('🔍 Searching Perplexity for similar products...')
+    logger.debug('Searching Perplexity for similar products', { product: validatedProduct.title })
+
+    // Check rate limit
+    try {
+      await perplexityRateLimiter.check('perplexity-api')
+    } catch (error) {
+      if (error instanceof RateLimitError) {
+        logger.warn('Rate limit exceeded for Perplexity API', { waitTime: error.waitTime })
+        throw error
+      }
+    }
 
     // Build search query based on user preferences
-    const searchQuery = buildProductSearchQuery(targetProduct, criteria, userPatterns)
+    const searchQuery = buildProductSearchQuery(validatedProduct, criteria, userPatterns)
 
-    // Call Perplexity API
-    const response = await callPerplexityAPI(searchQuery)
+    // Call Perplexity API with retry
+    const response = await withRetry(
+      () => callPerplexityAPI(searchQuery),
+      {
+        maxRetries: 3,
+        retryDelay: 1000,
+        exponentialBackoff: true,
+        retryable: isRetryableError,
+      }
+    )
 
     // Parse response to extract products
-    const products = parsePerplexityResponse(response, targetProduct)
+    const products = parsePerplexityResponse(response, validatedProduct)
 
-    console.log(`✅ Found ${products.length} similar products from Perplexity`)
-    return products
+    // Validate and filter products
+    const validProducts = products
+      .map(p => safeValidateProduct(p))
+      .filter((p): p is Product => p !== null)
+
+    // Cache results (12 hour TTL for product searches)
+    if (validProducts.length > 0) {
+      cache.set(cacheKey, validProducts, 12 * 60 * 60 * 1000)
+    }
+
+    logger.debug(`Found ${validProducts.length} similar products from Perplexity`)
+    return validProducts
   } catch (error) {
-    console.error('❌ Perplexity search failed:', error)
+    logger.error('Perplexity search failed', error)
     // Return empty array on error - fallback to mock products
     return []
   }
@@ -56,7 +112,11 @@ export async function searchSimilarProducts(
 function buildProductSearchQuery(
   product: Product,
   criteria: RecommendationCriteria,
-  patterns: any
+  patterns: {
+    avgLikedPrice: number
+    preferredCategories: string[]
+    qualityThreshold: number
+  }
 ): string {
   const priceRange = patterns.avgLikedPrice > 0 
     ? `around $${patterns.avgLikedPrice.toFixed(0)}` 
@@ -110,67 +170,67 @@ function buildProductSearchQuery(
  * Call Perplexity API with timeout protection
  */
 async function callPerplexityAPI(query: string): Promise<string> {
-  try {
-    console.log('📡 Calling Perplexity API...', { queryLength: query.length })
+  // Get API key from secure storage
+  const config = await getPerplexityConfig()
+  
+  logger.debug('Calling Perplexity API', { queryLength: query.length })
 
-    // Create timeout promise (30 seconds for Perplexity - increased to allow for full response)
-    const timeoutPromise = new Promise<never>((_, reject) => 
-      setTimeout(() => reject(new Error('Perplexity API timeout after 30 seconds')), 30000)
-    )
+  // Create timeout promise (30 seconds for Perplexity)
+  const timeoutPromise = new Promise<never>((_, reject) => 
+    setTimeout(() => reject(new Error('Perplexity API timeout after 30 seconds')), 30000)
+  )
 
-    // Create fetch promise
-    const fetchPromise = fetch(PERPLEXITY_CONFIG.API_URL, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${PERPLEXITY_CONFIG.API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'sonar', // Updated from deprecated llama-3.1-sonar-large-128k-online
-        messages: [
-          {
-            role: 'system',
-            content: 'You are a shopping assistant that finds similar products. Always return valid JSON arrays with product information. Include real product names, realistic prices, and ratings when available.'
-          },
-          {
-            role: 'user',
-            content: query
-          }
-        ],
-        temperature: 0.7,
-        max_tokens: 2000,
-      }),
+  // Create fetch promise
+  const fetchPromise = fetch(config.API_URL, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${config.API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'sonar',
+      messages: [
+        {
+          role: 'system',
+          content: 'You are a shopping assistant that finds similar products. Always return valid JSON arrays with product information. Include real product names, realistic prices, and ratings when available.'
+        },
+        {
+          role: 'user',
+          content: query
+        }
+      ],
+      temperature: 0.7,
+      max_tokens: 2000,
+    }),
+  })
+
+  // Race between fetch and timeout
+  const response = await Promise.race([fetchPromise, timeoutPromise])
+
+  logger.debug('Perplexity API response received', { status: response.status })
+
+  if (!response.ok) {
+    const errorText = await response.text()
+    const error = new Error(`Perplexity API error: ${response.status} - ${errorText}`)
+    logger.error('Perplexity API error', {
+      status: response.status,
+      statusText: response.statusText,
+      error: errorText
     })
-
-    // Race between fetch and timeout
-    const response = await Promise.race([fetchPromise, timeoutPromise])
-
-    console.log('📡 Perplexity API response status:', response.status)
-
-    if (!response.ok) {
-      const errorText = await response.text()
-      console.error('❌ Perplexity API error:', {
-        status: response.status,
-        statusText: response.statusText,
-        error: errorText
-      })
-      throw new Error(`Perplexity API error: ${response.status} - ${errorText}`)
-    }
-
-    const data: PerplexityResponse = await response.json()
-    console.log('📥 Perplexity API response received')
-    
-    const content = data.choices?.[0]?.message?.content
-
-    if (!content) {
-      throw new Error('No content in Perplexity response')
-    }
-
-    return content
-  } catch (error) {
-    console.error('❌ Error calling Perplexity API:', error)
     throw error
   }
+
+  const data: PerplexityResponse = await response.json()
+  
+  const content = data.choices?.[0]?.message?.content
+
+  if (!content) {
+    const error = new Error('No content in Perplexity response')
+    logger.error('Invalid Perplexity response', { data })
+    throw error
+  }
+
+  return content
 }
 
 /**
@@ -179,8 +239,10 @@ async function callPerplexityAPI(query: string): Promise<string> {
  */
 function parsePerplexityResponse(response: string, targetProduct: Product): Product[] {
   try {
-    console.log('🔍 Parsing Perplexity response, length:', response.length)
-    console.log('   Preview:', response.substring(0, 300) + (response.length > 300 ? '...' : ''))
+    logger.debug('Parsing Perplexity response', { 
+      length: response.length,
+      preview: response.substring(0, 300) + (response.length > 300 ? '...' : '')
+    })
     
     // Extract JSON from response (might have markdown code blocks)
     let jsonText = response.trim()
@@ -199,8 +261,9 @@ function parsePerplexityResponse(response: string, targetProduct: Product): Prod
     try {
       products = JSON.parse(jsonText)
     } catch (parseError) {
-      console.warn('⚠️ Initial JSON parse failed, attempting to fix truncated JSON...')
-      console.warn('   Error:', parseError instanceof Error ? parseError.message : String(parseError))
+      logger.warn('Initial JSON parse failed, attempting to fix truncated JSON', {
+        error: parseError instanceof Error ? parseError.message : String(parseError)
+      })
       
       // Try to extract valid JSON from truncated response
       // Find the last complete object in the array
@@ -227,28 +290,29 @@ function parsePerplexityResponse(response: string, targetProduct: Product): Prod
         const lastCompleteObject = jsonText.lastIndexOf('},', lastValidIndex)
         if (lastCompleteObject > 0) {
           fixedJson = jsonText.substring(0, lastCompleteObject + 1) + ']'
-          console.log('   Attempting to fix by extracting up to last complete object')
+          logger.debug('Attempting to fix by extracting up to last complete object')
         } else {
           // Try to close the array properly
           fixedJson = jsonText.replace(/,\s*$/, '') + ']'
-          console.log('   Attempting to fix by closing array')
+          logger.debug('Attempting to fix by closing array')
         }
       } else {
         // Last resort: try to extract just the first complete objects
         const firstObjects = jsonText.match(/\[[\s\S]*?\}(?:\s*,\s*\{[\s\S]*?\})*/)
         if (firstObjects) {
           fixedJson = firstObjects[0] + ']'
-          console.log('   Attempting to fix by extracting first complete objects')
+          logger.debug('Attempting to fix by extracting first complete objects')
         }
       }
       
       try {
         products = JSON.parse(fixedJson)
-        console.log('✅ Successfully parsed fixed JSON')
+        logger.debug('Successfully parsed fixed JSON')
       } catch (fixError) {
-        console.error('❌ Failed to fix JSON, returning empty array')
-        console.error('   Original error:', parseError)
-        console.error('   Fix attempt error:', fixError)
+        logger.error('Failed to fix JSON, returning empty array', {
+          originalError: parseError,
+          fixError
+        })
         return [] // Return empty array instead of crashing
       }
     }
@@ -288,8 +352,10 @@ function parsePerplexityResponse(response: string, targetProduct: Product): Prod
       } as Product & { whyRecommended?: string }
     }).filter((p: Product) => p.title && p.title !== 'Similar Product')
   } catch (error) {
-    console.error('❌ Error parsing Perplexity response:', error)
-    console.error('Response text:', response.substring(0, 500))
+    logger.error('Error parsing Perplexity response', {
+      error,
+      responsePreview: response.substring(0, 500)
+    })
     return []
   }
 }
@@ -299,7 +365,11 @@ function parsePerplexityResponse(response: string, targetProduct: Product): Prod
  */
 export async function searchProductsByCriteria(
   criteria: RecommendationCriteria,
-  patterns: any,
+  patterns: {
+    avgLikedPrice: number
+    preferredCategories: string[]
+    qualityThreshold: number
+  },
   searchTerm?: string
 ): Promise<Product[]> {
   try {
@@ -342,7 +412,7 @@ export async function searchProductsByCriteria(
 
     return products
   } catch (error) {
-    console.error('❌ Perplexity criteria search failed:', error)
+    logger.error('Perplexity criteria search failed', error)
     return []
   }
 }

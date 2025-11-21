@@ -196,3 +196,8 @@ When you click "Add to Cart", you should see:
 The modal should now work correctly without re-triggering, and you'll have clear visibility into whether AI services are working or using fallback data!
 
 
+
+
+
+
+

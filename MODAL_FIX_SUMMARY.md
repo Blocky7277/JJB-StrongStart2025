@@ -186,3 +186,8 @@ document.getElementById('smart-shopping-loader')
 The extension should now be much more reliable! 🎉
 
 
+
+
+
+
+
