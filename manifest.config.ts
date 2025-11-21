@@ -20,7 +20,9 @@ export default defineManifest({
     'tabs'
   ],
   host_permissions: [
-    "https://www.amazon.com/*"
+    "https://www.amazon.com/*",
+    "https://generativelanguage.googleapis.com/*",
+    "https://api.perplexity.ai/*"
   ],
   content_scripts: [{
     js: ['src/content/main.tsx'],

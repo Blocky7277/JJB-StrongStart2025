@@ -1,574 +1,441 @@
-/**
- * Purchase Modal
- * Shows analysis and recommendations before purchase
- */
-
 import { Product, ProductRecommendation } from '@/types/onboarding'
 
 export class PurchaseModal {
   private overlay: HTMLDivElement | null = null
+  private isOpen = false
+  private closeHandlers: Array<() => void> = []
+  private lastShownAt: number = 0
 
-  /**
-   * Show the purchase decision modal
-   */
   show(
     product: Product,
-    recommendation: { recommendation: string; reasons: string[]; score: number },
+    recommendation: { recommendation: string; reasons: string[]; score: number; breakdown?: any; confidence?: number },
     alternatives: ProductRecommendation[],
     onProceed: () => void,
     onCancel: () => void,
     onAlternativeClick?: (alternativeId: string) => void,
+    insights?: { summary: string; strengths: string[]; concerns: string[]; valueAssessment: string; recommendation: string; alternativeConsiderations: string[] } | null,
     onRating?: (rating: number) => void
   ): void {
-    this.remove() // Remove any existing modal
-
-    const { recommendation: rec, reasons, score } = recommendation
-
-    const badgeConfig = this.getBadgeConfig(rec)
-
-    this.overlay = document.createElement('div')
-    this.overlay.style.cssText = `
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background: rgba(0, 0, 0, 0.75);
-      z-index: 9999999;
-      display: flex;
-      align-items: center;
-      justify-content: center;
+    // ... (Previous validations and HTML building code remains exactly the same) ...
+    
+    // 1. BUILD: Create the new element
+    const newOverlay = document.createElement('div');
+    newOverlay.style.cssText = `
+      position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0, 0, 0, 0.75); z-index: 9999999;
+      display: flex; align-items: center; justify-content: center;
       animation: fadeIn 0.3s ease;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    `
+    `;
+    
+    // Build complete HTML template with star rating
+    if (!recommendation) {
+      console.error('❌ PurchaseModal: Missing recommendation data');
+      return;
+    }
 
-    this.overlay.innerHTML = `
+    const { recommendation: rec, reasons, score } = recommendation;
+    const badgeConfig = this.getBadgeConfig(rec);
+    
+    newOverlay.innerHTML = `
       <style>
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
         @keyframes slideUp { from { transform: translateY(30px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
-        @keyframes pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.05); } }
-        
-        .modal-content {
-          background: white;
-          border-radius: 24px;
-          max-width: 600px;
-          width: 90%;
-          max-height: 90vh;
-          overflow-y: auto;
-          box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-          animation: slideUp 0.3s ease;
-        }
-
-        .modal-header {
-          background: linear-gradient(135deg, ${badgeConfig.gradient});
-          color: white;
-          padding: 2rem;
-          border-radius: 24px 24px 0 0;
-          text-align: center;
-        }
-
-        .modal-badge {
-          display: inline-block;
-          padding: 0.75rem 1.5rem;
-          background: rgba(255, 255, 255, 0.2);
-          border-radius: 12px;
-          font-size: 1.5rem;
-          font-weight: 700;
-          margin-bottom: 1rem;
-          backdrop-filter: blur(10px);
-        }
-
-        .modal-title {
-          font-size: 1.75rem;
-          font-weight: 700;
-          margin: 0;
-        }
-
-        .modal-body {
-          padding: 2rem;
-        }
-
-        .product-info {
-          background: #f8f9fa;
-          border-radius: 16px;
-          padding: 1.5rem;
-          margin-bottom: 1.5rem;
-        }
-
-        .product-title {
-          font-size: 1.125rem;
-          font-weight: 600;
-          color: #1a1a1a;
-          margin: 0 0 0.5rem 0;
-        }
-
-        .product-price {
-          font-size: 1.5rem;
-          font-weight: 700;
-          color: #667eea;
-        }
-
-        .score-section {
-          margin-bottom: 1.5rem;
-        }
-
-        .score-label {
-          font-size: 0.875rem;
-          color: #666;
-          margin-bottom: 0.5rem;
-          font-weight: 600;
-        }
-
-        .score-bar {
-          width: 100%;
-          height: 12px;
-          background: #e5e7eb;
-          border-radius: 6px;
-          overflow: hidden;
-          position: relative;
-        }
-
-        .score-fill {
-          height: 100%;
-          background: ${badgeConfig.color};
-          width: ${score * 100}%;
-          transition: width 1s ease;
-          position: relative;
-        }
-
-        .score-fill::after {
-          content: '';
-          position: absolute;
-          top: 0;
-          left: 0;
-          right: 0;
-          bottom: 0;
-          background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
-          animation: shimmer 2s infinite;
-        }
-
-        @keyframes shimmer {
-          0% { transform: translateX(-100%); }
-          100% { transform: translateX(100%); }
-        }
-
-        .score-text {
-          text-align: center;
-          margin-top: 0.5rem;
-          font-weight: 600;
-          color: ${badgeConfig.color};
-          font-size: 1.125rem;
-        }
-
-        .reasons-section {
-          margin-bottom: 1.5rem;
-        }
-
-        .section-title {
-          font-size: 1rem;
-          font-weight: 600;
-          color: #1a1a1a;
-          margin: 0 0 1rem 0;
-        }
-
-        .reason-item {
-          background: #f3f4f6;
-          padding: 0.75rem 1rem;
-          border-radius: 10px;
-          margin-bottom: 0.5rem;
-          font-size: 0.95rem;
-          display: flex;
-          align-items: center;
-          gap: 0.5rem;
-        }
-
-        .rating-section {
-          margin-bottom: 1.5rem;
-          text-align: center;
-          padding: 1.5rem;
-          background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-          border-radius: 16px;
-        }
-
-        .rating-label {
-          font-size: 1rem;
-          font-weight: 600;
-          color: #1a1a1a;
-          margin-bottom: 1rem;
-        }
-
-        .star-rating {
-          display: flex;
-          justify-content: center;
-          gap: 0.5rem;
-        }
-
-        .star-button {
-          background: none;
-          border: none;
-          cursor: pointer;
-          padding: 0.25rem;
-          transition: transform 0.2s ease;
-        }
-
-        .star-button:hover {
-          transform: scale(1.15);
-        }
-
-        .star-button:active {
-          transform: scale(0.95);
-        }
-
-        .star-button svg {
-          display: block;
-        }
-
-        .rating-text {
-          margin-top: 0.75rem;
-          font-size: 0.875rem;
-          color: #666;
-          font-weight: 500;
-        }
-
-        .alternatives-section {
-          margin-bottom: 1.5rem;
-        }
-
-        .alternative-card {
-          background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-          border-radius: 16px;
-          padding: 1.25rem;
-          margin-bottom: 1rem;
-          cursor: pointer;
-          transition: all 0.3s ease;
-          border: 2px solid transparent;
-        }
-
-        .alternative-card:hover {
-          transform: translateY(-4px);
-          box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
-          border-color: #667eea;
-        }
-
-        .alt-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: flex-start;
-          margin-bottom: 0.75rem;
-        }
-
-        .alt-title {
-          font-weight: 600;
-          color: #1a1a1a;
-          font-size: 1rem;
-          flex: 1;
-        }
-
-        .alt-price {
-          font-size: 1.25rem;
-          font-weight: 700;
-          color: #10b981;
-          margin-left: 1rem;
-        }
-
-        .alt-savings {
-          display: inline-block;
-          background: #10b981;
-          color: white;
-          padding: 0.25rem 0.75rem;
-          border-radius: 6px;
-          font-size: 0.875rem;
-          font-weight: 600;
-          margin-bottom: 0.5rem;
-        }
-
-        .alt-reasons {
-          font-size: 0.875rem;
-          color: #666;
-          line-height: 1.5;
-        }
-
-        .modal-actions {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 1rem;
-          padding: 0 2rem 2rem 2rem;
-        }
-
-        .action-btn {
-          padding: 1rem 2rem;
-          border-radius: 12px;
-          font-weight: 600;
-          font-size: 1rem;
-          cursor: pointer;
-          border: none;
-          transition: all 0.3s ease;
-        }
-
-        .action-btn:hover {
-          transform: translateY(-2px);
-          box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
-        }
-
-        .btn-proceed {
-          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-          color: white;
-        }
-
-        .btn-cancel {
-          background: white;
-          color: #666;
-          border: 2px solid #e5e7eb;
-        }
-
-        .btn-cancel:hover {
-          border-color: #cbd5e1;
-        }
+        .modal-content { background: white; border-radius: 24px; max-width: 600px; width: 90%; max-height: 90vh; overflow-y: auto; animation: slideUp 0.3s ease; }
+        .modal-header { background: linear-gradient(135deg, ${badgeConfig.gradient}); padding: 2rem; text-align: center; color: white; border-radius: 24px 24px 0 0; }
+        .modal-body { padding: 2rem; }
+        .star-rating { display: flex; justify-content: center; gap: 0.5rem; margin: 1rem 0; }
+        .star-button { background: none; border: none; font-size: 2rem; cursor: pointer; opacity: 0.3; transition: all 0.2s ease; padding: 0.25rem; }
+        .star-button:hover { transform: scale(1.2); opacity: 0.6; }
+        .star-button.active { opacity: 1; }
+        .rating-text { text-align: center; margin-top: 0.5rem; font-size: 0.875rem; color: #666; }
       </style>
-
       <div class="modal-content">
-        <div class="modal-header">
-          <div class="modal-badge">${badgeConfig.emoji} ${badgeConfig.text}</div>
-          <h2 class="modal-title">Purchase Analysis</h2>
+        <div class="modal-header" style="position: relative;">
+          <button id="modal-close-x" style="position: absolute; top: 1rem; right: 1rem; background: rgba(255, 255, 255, 0.2); border: none; color: white; width: 36px; height: 36px; border-radius: 50%; cursor: pointer; font-size: 1.5rem; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease; font-weight: bold;">✕</button>
+          <div style="font-size: 1.5rem; margin-bottom: 1rem;">${badgeConfig.emoji} ${badgeConfig.text}</div>
+          <h2 style="margin:0; font-size: 1.75rem;">Purchase Analysis</h2>
         </div>
-
         <div class="modal-body">
-          <div class="product-info">
-            <h3 class="product-title">${product.title}</h3>
-            <div class="product-price">${product.price}</div>
+          <div style="background: #f8f9fa; border-radius: 16px; padding: 1.5rem; margin-bottom: 1.5rem;">
+            <h3 style="margin:0 0 0.5rem 0;">${product.title}</h3>
+            <div style="font-size: 1.5rem; font-weight: 700; color: #667eea;">${product.price}</div>
           </div>
-
-          <div class="score-section">
-            <div class="score-label">Match Score</div>
-            <div class="score-bar">
-              <div class="score-fill"></div>
+          
+          <div style="margin-bottom: 1.5rem;">
+            <div style="margin-bottom: 0.5rem; font-weight: 600; color: #666;">Match Score</div>
+            <div style="width: 100%; height: 12px; background: #e5e7eb; border-radius: 6px; overflow: hidden;">
+              <div style="height: 100%; background: ${badgeConfig.color}; width: ${score * 100}%;"></div>
             </div>
-            <div class="score-text">${Math.round(score * 100)}% match with your preferences</div>
+            <div style="text-align: center; margin-top: 0.5rem; color: ${badgeConfig.color}; font-weight: 600;">${Math.round(score * 100)}% match</div>
           </div>
 
-          <div class="reasons-section">
-            <h3 class="section-title">📊 Analysis</h3>
-            ${reasons.map(reason => `
-              <div class="reason-item">${reason}</div>
-            `).join('')}
+          ${insights ? `
+            <div style="background: #f0f9ff; border-radius: 16px; padding: 1.5rem; margin-bottom: 1.5rem; border-left: 4px solid #3b82f6;">
+              <h3 style="color: #1e40af; margin-top: 0;">🤖 AI Insights</h3>
+              <p style="color: #1e3a8a;">${insights.summary}</p>
+            </div>
+          ` : ''}
+
+          <div style="margin-bottom: 1.5rem;">
+            <h3 style="font-size: 1rem; font-weight: 600; margin-bottom: 1rem;">📊 Analysis</h3>
+            ${reasons.map(r => `<div style="background: #f3f4f6; padding: 0.75rem; border-radius: 10px; margin-bottom: 0.5rem;">${r}</div>`).join('')}
           </div>
 
-          <div class="rating-section">
-            <div class="rating-label">How much do you like this product?</div>
+          <div style="background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); border-radius: 16px; padding: 1.5rem; margin-bottom: 1.5rem; text-align: center;">
+            <div style="font-size: 1rem; font-weight: 600; color: #1a1a1a; margin-bottom: 1rem;">⭐ How much do you like this product?</div>
             <div class="star-rating" id="star-rating">
-              <button class="star-button" data-rating="1">
-                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" stroke-width="2">
-                  <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
-                </svg>
-              </button>
-              <button class="star-button" data-rating="2">
-                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" stroke-width="2">
-                  <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
-                </svg>
-              </button>
-              <button class="star-button" data-rating="3">
-                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" stroke-width="2">
-                  <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
-                </svg>
-              </button>
-              <button class="star-button" data-rating="4">
-                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" stroke-width="2">
-                  <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
-                </svg>
-              </button>
-              <button class="star-button" data-rating="5">
-                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" stroke-width="2">
-                  <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
-                </svg>
-              </button>
+              <button class="star-button" data-rating="1">⭐</button>
+              <button class="star-button" data-rating="2">⭐</button>
+              <button class="star-button" data-rating="3">⭐</button>
+              <button class="star-button" data-rating="4">⭐</button>
+              <button class="star-button" data-rating="5">⭐</button>
             </div>
             <div class="rating-text" id="rating-text">Tap a star to rate</div>
           </div>
 
-          ${alternatives.length > 0 ? `
-            <div class="alternatives-section">
-              <h3 class="section-title">💡 Better Alternatives Found</h3>
-              ${alternatives.slice(0, 3).map(alt => `
-                <div class="alternative-card" data-alt-id="${alt.product.id}">
-                  ${alt.savings ? `
-                    <div class="alt-savings">💰 Save $${alt.savings.toFixed(2)}</div>
-                  ` : ''}
-                  <div class="alt-header">
-                    <div class="alt-title">${alt.product.title}</div>
-                    <div class="alt-price">${alt.product.price}</div>
+          ${alternatives && alternatives.length > 0 ? `
+            <div style="margin-bottom: 1.5rem;">
+              <h3 style="font-size: 1rem; font-weight: 600; margin-bottom: 1rem;">💡 Better Alternatives (${alternatives.length})</h3>
+              ${alternatives.slice(0, 3).map((alt, idx) => `
+                <div class="alternative-card" data-alt-id="${alt.product.id || idx}" data-alt-url="${alt.product.url || ''}" style="background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); border-radius: 16px; padding: 1.25rem; margin-bottom: 1rem; cursor: pointer; transition: all 0.3s ease; border: 2px solid transparent;">
+                  ${alt.savings ? `<div style="background: #10b981; color: white; padding: 0.25rem 0.75rem; border-radius: 6px; font-size: 0.875rem; font-weight: 600; margin-bottom: 0.5rem; display: inline-block;">💰 Save $${alt.savings.toFixed(2)}</div>` : ''}
+                  <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.75rem;">
+                    <div style="font-weight: 600; color: #1a1a1a; font-size: 1rem; flex: 1;">${alt.product.title}</div>
+                    <div style="font-size: 1.25rem; font-weight: 700; color: #10b981; margin-left: 1rem;">${alt.product.price}</div>
                   </div>
-                  <div class="alt-reasons">
-                    ${alt.reasons.slice(0, 3).join(' • ')}
+                  <div style="font-size: 0.875rem; color: #666; line-height: 1.5;">
+                    ${alt.reasons.slice(0, 2).join(' • ')}
                   </div>
+                  <div style="margin-top: 0.5rem; font-size: 0.75rem; color: #667eea; font-weight: 600;">${(alt.score * 100).toFixed(0)}% match</div>
                 </div>
               `).join('')}
             </div>
           ` : ''}
-        </div>
 
-        <div class="modal-actions">
-          <button class="action-btn btn-cancel" id="cancel-btn">
-            View Alternatives
-          </button>
-          <button class="action-btn btn-proceed" id="proceed-btn">
-            Close
-          </button>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 2rem;">
+            <button id="view-alternatives-btn" style="padding: 1rem; border-radius: 12px; background: white; border: 2px solid #e5e7eb; cursor: pointer; font-weight: 600;" ${!alternatives || alternatives.length === 0 ? 'disabled' : ''}>View Alternatives</button>
+            <button id="proceed-btn" style="padding: 1rem; border-radius: 12px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; cursor: pointer; font-weight: 600;">Close</button>
+          </div>
         </div>
       </div>
     `
 
-    document.body.appendChild(this.overlay)
-
-    // Star rating functionality
-    const starButtons = this.overlay.querySelectorAll('.star-button')
-    const ratingText = this.overlay.querySelector('#rating-text')
-    let currentRating = 0
-    let hoverRating = 0
-
-    const ratingLabels = [
-      '',
-      '😞 Not for me',
-      '😐 It\'s okay',
-      '🙂 Pretty good',
-      '😊 Really like it',
-      '🤩 Love it!'
-    ]
-
-    const updateStars = (rating: number) => {
-      starButtons.forEach((button) => {
-        const star = button as HTMLElement
-        const starRating = parseInt(star.getAttribute('data-rating') || '0')
-        const svg = star.querySelector('svg')
-        
-        if (svg) {
-          if (starRating <= rating) {
-            svg.setAttribute('fill', '#fbbf24')
-          } else {
-            svg.setAttribute('fill', 'none')
-          }
-        }
-      })
+    // 2. SWAP
+    if (this.overlay) {
+      // Pass isUserAction: false, but since we are replacing it intentionally, 
+      // we might want to skip the check or just allow the replacement.
+      this.remove({ isUserAction: true }); // Treat replacement as a valid action
     }
 
-    starButtons.forEach(button => {
-      button.addEventListener('click', () => {
-        const rating = parseInt(button.getAttribute('data-rating') || '0')
-        currentRating = rating
-        updateStars(rating)
+    this.overlay = newOverlay;
+    this.isOpen = true;
+    this.lastShownAt = Date.now();
+    document.body.appendChild(this.overlay);
 
+    // 3. EVENT LISTENERS (Updated to identify User Actions)
+
+    // X Close Button (top right)
+    const closeXBtn = this.overlay.querySelector('#modal-close-x');
+    if (closeXBtn) {
+      closeXBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        console.log('✕ Close button clicked');
+        // ✅ Flag as user action
+        this.remove({ isUserAction: true });
+        onCancel();
+      });
+      
+      // Hover effect for X button
+      closeXBtn.addEventListener('mouseenter', () => {
+        (closeXBtn as HTMLElement).style.background = 'rgba(255, 255, 255, 0.3)';
+        (closeXBtn as HTMLElement).style.transform = 'scale(1.1)';
+      });
+      closeXBtn.addEventListener('mouseleave', () => {
+        (closeXBtn as HTMLElement).style.background = 'rgba(255, 255, 255, 0.2)';
+        (closeXBtn as HTMLElement).style.transform = 'scale(1)';
+      });
+    }
+
+    // REMOVED: Background click to close - now only X button closes the modal
+
+    // Close / Proceed Button
+    const proceedBtn = this.overlay.querySelector('#proceed-btn');
+    if (proceedBtn) {
+        proceedBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            // ✅ Flag as user action
+            this.remove({ isUserAction: true });
+            onProceed();
+        });
+    }
+
+    // View Alternatives Button
+    const viewAlternativesBtn = this.overlay.querySelector('#view-alternatives-btn');
+    if (viewAlternativesBtn) {
+        viewAlternativesBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            
+            if (alternatives && alternatives.length > 0) {
+              console.log('🔍 View Alternatives clicked', { 
+                alternativesCount: alternatives.length,
+                alternatives: alternatives.map(alt => ({
+                  title: alt.product.title,
+                  id: alt.product.id,
+                  url: alt.product.url,
+                  hasUrl: !!alt.product.url,
+                  hasId: !!alt.product.id
+                }))
+              });
+              
+              const urlsToOpen: Array<{url: string, title: string, index: number}> = [];
+              
+              // First, prepare all URLs to open
+              alternatives.forEach((alt, idx) => {
+                let urlToOpen: string | null = null;
+                
+                // Priority 1: Use direct URL if available
+                if (alt.product.url && (alt.product.url.startsWith('http://') || alt.product.url.startsWith('https://'))) {
+                  urlToOpen = alt.product.url;
+                  console.log(`   [${idx + 1}] Will open via direct URL: ${alt.product.title}`);
+                } 
+                // Priority 2: Try Amazon ASIN (starts with B and is 10 chars)
+                else if (alt.product.id && alt.product.id.startsWith('B') && alt.product.id.length === 10) {
+                  urlToOpen = `https://www.amazon.com/dp/${alt.product.id}`;
+                  console.log(`   [${idx + 1}] Will open via Amazon ASIN: ${alt.product.title}`);
+                }
+                // Priority 3: Extract ASIN from ID if it contains one
+                else if (alt.product.id) {
+                  // Try to extract ASIN pattern (B followed by 9 alphanumeric)
+                  const asinMatch = alt.product.id.match(/B[A-Z0-9]{9}/);
+                  if (asinMatch) {
+                    urlToOpen = `https://www.amazon.com/dp/${asinMatch[0]}`;
+                    console.log(`   [${idx + 1}] Will open via extracted ASIN: ${alt.product.title}`);
+                  }
+                }
+                
+                // Priority 4: Fallback to Amazon search if no URL found
+                if (!urlToOpen) {
+                  // Search Amazon for the product title
+                  const searchQuery = encodeURIComponent(alt.product.title);
+                  urlToOpen = `https://www.amazon.com/s?k=${searchQuery}`;
+                  console.log(`   [${idx + 1}] Will open via Amazon search: ${alt.product.title}`);
+                }
+                
+                if (urlToOpen) {
+                  urlsToOpen.push({ url: urlToOpen, title: alt.product.title, index: idx });
+                }
+                
+                // Track that user viewed this alternative
+                if (onAlternativeClick && alt.product.id) {
+                  onAlternativeClick(alt.product.id);
+                }
+              });
+              
+              console.log(`📊 Prepared ${urlsToOpen.length} URLs to open out of ${alternatives.length} alternatives`);
+              
+              if (urlsToOpen.length === 0) {
+                console.warn('⚠️ No URLs could be generated for alternatives');
+                alert(`Unable to generate URLs for alternative products.\n\nFound ${alternatives.length} alternatives but they don't have valid URLs or product IDs.\n\nYou can still rate this product or close the modal with the X button.`);
+                return; // Don't close modal - let user decide
+              }
+              
+              // Now open all URLs with staggered timing to avoid popup blockers
+              let openedCount = 0;
+              const totalUrls = urlsToOpen.length;
+              
+              urlsToOpen.forEach((item, idx) => {
+                setTimeout(() => {
+                  try {
+                    console.log(`   [${idx + 1}/${totalUrls}] Opening: ${item.title}`);
+                    console.log(`       URL: ${item.url}`);
+                    const newWindow = window.open(item.url, '_blank');
+                    if (newWindow) {
+                      openedCount++;
+                      console.log(`   ✅ Successfully opened tab ${idx + 1}/${totalUrls}`);
+                    } else {
+                      console.warn(`   ⚠️ Popup blocked for tab ${idx + 1}/${totalUrls}`);
+                    }
+                  } catch (error) {
+                    console.error(`   ❌ Error opening tab ${idx + 1}/${totalUrls}:`, error);
+                  }
+                  
+                  // After all tabs have been attempted, show summary but KEEP modal open
+                  if (idx === urlsToOpen.length - 1) {
+                    setTimeout(() => {
+                      console.log(`📊 Summary: Opened ${openedCount} out of ${urlsToOpen.length} alternative tabs`);
+                      
+                      if (openedCount === 0 && urlsToOpen.length > 0) {
+                        console.warn('⚠️ No tabs opened - popup blocker may be active');
+                        const productList = alternatives.slice(0, 3).map(a => `• ${a.product.title}`).join('\n');
+                        alert(`Popup blocker may be preventing new tabs.\n\nPlease allow popups for this site, or manually search Amazon for:\n\n${productList}`);
+                      } else if (openedCount > 0) {
+                        console.log(`✅ Successfully opened ${openedCount} alternative tabs`);
+                        console.log('ℹ️ Modal remains open - you can still rate the product or close it with the X button');
+                      }
+                      
+                      // DO NOT close modal - let user rate the product or close manually with X button
+                    }, 500); // Give extra time for last tab to open
+                  }
+                }, idx * 200); // Stagger opens (200ms between each to avoid popup blocker)
+              });
+            } else {
+              console.warn('⚠️ No alternatives available to view');
+              alert('No alternatives are available for this product.');
+            }
+        });
+    }
+
+    // Star Rating Functionality
+    let currentRating = 0;
+    const ratingLabels = ['', '😞 Not for me', '😐 It\'s okay', '🙂 Pretty good', '😊 Really like it', '🤩 Love it!'];
+    const starButtons = this.overlay.querySelectorAll('.star-button');
+    const ratingText = this.overlay.querySelector('#rating-text') as HTMLElement;
+    
+    starButtons.forEach((button) => {
+      const starBtn = button as HTMLElement;
+      const starRating = parseInt(starBtn.getAttribute('data-rating') || '0');
+      
+      starBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        currentRating = starRating;
+        
+        // Update star display
+        starButtons.forEach((btn, idx) => {
+          const btnEl = btn as HTMLElement;
+          if (idx < starRating) {
+            btnEl.classList.add('active');
+          } else {
+            btnEl.classList.remove('active');
+          }
+        });
+        
         // Update text
         if (ratingText) {
-          ratingText.textContent = ratingLabels[rating]
+          ratingText.textContent = ratingLabels[starRating];
         }
-
-        // Call callback
+        
+        // Save rating to Supabase
         if (onRating) {
-          onRating(rating)
+          console.log('⭐ User rated product:', starRating, 'stars');
+          onRating(starRating);
         }
-      })
-
+      });
+      
       // Hover effect
-      button.addEventListener('mouseenter', () => {
-        const rating = parseInt(button.getAttribute('data-rating') || '0')
-        hoverRating = rating
-        updateStars(rating)
-      })
+      starBtn.addEventListener('mouseenter', () => {
+        starButtons.forEach((btn, idx) => {
+          const btnEl = btn as HTMLElement;
+          if (idx < starRating) {
+            btnEl.style.opacity = '1';
+          } else {
+            btnEl.style.opacity = '0.3';
+          }
+        });
+      });
+      
+      starBtn.addEventListener('mouseleave', () => {
+        starButtons.forEach((btn, idx) => {
+          const btnEl = btn as HTMLElement;
+          if (idx < currentRating) {
+            btnEl.style.opacity = '1';
+          } else {
+            btnEl.style.opacity = '0.3';
+          }
+        });
+      });
+    });
 
-      button.addEventListener('mouseleave', () => {
-        hoverRating = 0
-        updateStars(currentRating)
-      })
-    })
-
-    // Add event listeners
-    this.overlay.querySelector('#proceed-btn')?.addEventListener('click', () => {
-      this.remove()
-      onProceed()
-    })
-
-    this.overlay.querySelector('#cancel-btn')?.addEventListener('click', () => {
-      this.remove()
-      onCancel()
-    })
-
-    // Alternative cards
-    this.overlay.querySelectorAll('.alternative-card').forEach(card => {
+    // Alternative Cards
+    this.overlay.querySelectorAll('.alternative-card').forEach((card) => {
       card.addEventListener('click', (e) => {
-        const target = e.currentTarget as HTMLElement
-        const altId = target.getAttribute('data-alt-id')
-        console.log('User clicked alternative:', altId)
+        e.stopPropagation();
+        e.preventDefault();
+        const target = e.currentTarget as HTMLElement;
+        const altUrl = target.getAttribute('data-alt-url');
+        const altId = target.getAttribute('data-alt-id');
         
-        if (altId && onAlternativeClick) {
-          onAlternativeClick(altId)
+        if (altUrl) {
+          window.open(altUrl, '_blank');
+        } else if (altId && altId.startsWith('B')) {
+          window.open(`https://www.amazon.com/dp/${altId}`, '_blank');
         }
         
-        // In production: open alternative product page
-        // window.open(`https://amazon.com/dp/${altId}`, '_blank')
-      })
-    })
-
-    // Close on overlay click
-    this.overlay.addEventListener('click', (e) => {
-      if (e.target === this.overlay) {
-        this.remove()
-        onCancel()
-      }
-    })
-
-    // Close on Escape key
+        if (onAlternativeClick && altId) {
+          onAlternativeClick(altId);
+        }
+        
+        // DO NOT close modal - let user rate the product or close manually with X button
+        console.log('ℹ️ Alternative opened - modal remains open for rating');
+      });
+    });
+    
+    // Escape Key
     const escapeHandler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        this.remove()
-        onCancel()
-        document.removeEventListener('keydown', escapeHandler)
+      if (e.key === 'Escape' && this.isOpen) {
+        // ✅ Flag as user action
+        this.remove({ isUserAction: true });
+        onCancel();
       }
-    }
-    document.addEventListener('keydown', escapeHandler)
+    };
+    document.addEventListener('keydown', escapeHandler);
+    this.closeHandlers.push(() => document.removeEventListener('keydown', escapeHandler));
   }
 
   /**
-   * Remove the modal
+   * Updated remove method handles "User Actions" vs "System Errors"
    */
-  remove(): void {
-    if (this.overlay) {
-      this.overlay.remove()
-      this.overlay = null
+  remove(options?: { isUserAction?: boolean }): void {
+    const { isUserAction = false } = options || {};
+
+    // Capture stack logic (keep for debugging if you want)
+    const stack = new Error().stack
+    const caller = stack?.split('\n')[2]?.trim() || 'unknown'
+    
+    // 🚨 CRITICAL PROTECTION LOGIC 🚨
+    // Only alert if:
+    // 1. It is NOT a user action (it's a system removal)
+    // 2. AND it happened too fast (< 5 seconds, lowered from 10s)
+    if (!isUserAction && this.lastShownAt && Date.now() - this.lastShownAt < 5000) {
+       console.error('🚨 CRITICAL: Modal closed automatically too quickly!');
+       console.error('   This implies a crash or race condition.');
+       console.error('   Caller:', caller);
+       
+       // Block removal if it looks like an error handler is trying to close it
+       if (caller.includes('error') || caller.includes('catch')) {
+           console.warn('   🚫 Blocking removal to preserve error state for user.');
+           return; 
+       }
     }
+
+    if (!this.isOpen || !this.overlay) return;
+
+    // Cleanup handlers
+    this.closeHandlers.forEach(h => h());
+    this.closeHandlers = [];
+
+    // Remove from DOM
+    if (this.overlay.parentNode) {
+      this.overlay.parentNode.removeChild(this.overlay);
+    }
+    
+    this.overlay = null;
+    this.isOpen = false;
+    this.lastShownAt = 0;
   }
 
-  /**
-   * Get badge configuration based on recommendation
-   */
   private getBadgeConfig(recommendation: string) {
     switch (recommendation) {
       case 'buy':
-        return {
-          emoji: '✅',
-          text: 'GOOD BUY',
-          color: '#10b981',
-          gradient: '#10b981 0%, #059669 100%',
-        }
+        return { emoji: '✅', text: 'GOOD BUY', color: '#10b981', gradient: '#10b981 0%, #059669 100%' };
       case 'consider':
-        return {
-          emoji: '🤔',
-          text: 'CONSIDER',
-          color: '#f59e0b',
-          gradient: '#f59e0b 0%, #d97706 100%',
-        }
+        return { emoji: '🤔', text: 'CONSIDER', color: '#f59e0b', gradient: '#f59e0b 0%, #d97706 100%' };
       case 'skip':
-        return {
-          emoji: '⚠️',
-          text: 'SKIP',
-          color: '#ef4444',
-          gradient: '#ef4444 0%, #dc2626 100%',
-        }
+        return { emoji: '⚠️', text: 'SKIP', color: '#ef4444', gradient: '#ef4444 0%, #dc2626 100%' };
       default:
-        return {
-          emoji: '🤔',
-          text: 'REVIEW',
-          color: '#667eea',
-          gradient: '#667eea 0%, #764ba2 100%',
-        }
+        return { emoji: '🤔', text: 'REVIEW', color: '#667eea', gradient: '#667eea 0%, #764ba2 100%' };
     }
   }
 }

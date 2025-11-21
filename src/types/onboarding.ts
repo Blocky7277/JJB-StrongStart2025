@@ -16,6 +16,8 @@ export interface Product {
   category: string
   rating?: number
   features?: string[] // Key features for matching
+  url?: string // Product URL for alternatives
+  whyRecommended?: string // Reason from Perplexity why this product is recommended
 }
 
 export interface SwipeDecision {

@@ -1,10 +1,13 @@
 /**
  * Product Analyzer
  * Uses collected onboarding data to analyze products and provide recommendations
+ * Now powered by Gemini AI for intelligent analysis
  */
 
 import { storage } from './storage'
 import { RecommendationEngine } from '@/services/recommendationEngine'
+import { GeminiService } from '@/services/geminiService'
+import { PerplexityService } from '@/services/perplexityService'
 import { Product } from '@/types/onboarding'
 
 export class ProductAnalyzer {
@@ -19,9 +22,43 @@ export class ProductAnalyzer {
       return null
     }
 
-    // In a real app, you'd fetch similar products from Amazon API
-    // For demo, we'll use sample products
-    const alternativeProducts = await this.fetchSimilarProducts(currentProduct)
+    // Fetch similar products using Perplexity AI
+    let alternativeProducts: Product[] = []
+    try {
+      console.log('🔍 Searching for similar products with Perplexity...')
+      console.log('   Product:', currentProduct.title)
+      console.log('   Category:', currentProduct.category)
+      const userPreferences = await storage.getPreferences()
+      if (userPreferences) {
+        const patterns = RecommendationEngine.analyzeSwipePatterns(userPreferences)
+        alternativeProducts = await PerplexityService.searchSimilarProducts(
+          currentProduct,
+          criteria,
+          patterns
+        )
+        if (alternativeProducts.length > 0) {
+          console.log(`✅ Found ${alternativeProducts.length} products from Perplexity`)
+          alternativeProducts.forEach((p, idx) => {
+            console.log(`   ${idx + 1}. ${p.title} - ${p.price}`)
+          })
+        } else {
+          console.warn('⚠️ Perplexity returned 0 products')
+        }
+      }
+    } catch (error) {
+      console.error('❌ Perplexity search failed:', error)
+      if (error instanceof Error) {
+        console.error('   Error message:', error.message)
+        console.error('   Stack:', error.stack)
+      } 
+    }
+    
+    // Fallback to mock products if Perplexity returns nothing
+    if (alternativeProducts.length === 0) {
+      console.log('📦 Using fallback mock products (Perplexity not available or returned no results)')
+      alternativeProducts = await this.fetchSimilarProducts(currentProduct)
+      console.log(`   Generated ${alternativeProducts.length} mock alternatives`)
+    }
 
     // Find better alternatives
     const recommendations = RecommendationEngine.findBetterAlternatives(
@@ -35,18 +72,101 @@ export class ProductAnalyzer {
     if (userPreferences) {
       const patterns = RecommendationEngine.analyzeSwipePatterns(userPreferences)
       
+      // Use Gemini for AI-powered match score analysis
+      let shouldBuy
+      let usingGemini = false
+      try {
+        console.log('🤖 Calling Gemini for match score analysis...')
+        console.log('   Product:', currentProduct.title)
+        console.log('   Price:', currentProduct.price)
+        const geminiAnalysis = await GeminiService.analyzeMatchScore(
+          currentProduct,
+          criteria,
+          patterns
+        )
+        usingGemini = true
+        console.log('✅ Gemini match score received:')
+        console.log('   Recommendation:', geminiAnalysis.recommendation)
+        console.log('   Score:', (geminiAnalysis.score * 100).toFixed(1) + '%')
+        console.log('   Confidence:', geminiAnalysis.confidence ? (geminiAnalysis.confidence * 100).toFixed(1) + '%' : 'N/A')
+        console.log('   Reasons:', geminiAnalysis.reasons.length)
+        shouldBuy = {
+          recommendation: geminiAnalysis.recommendation,
+          reasons: geminiAnalysis.reasons,
+          score: geminiAnalysis.score,
+          confidence: geminiAnalysis.confidence,
+          breakdown: geminiAnalysis.breakdown,
+        }
+      } catch (error) {
+        console.error('❌ Gemini analysis failed:', error)
+        if (error instanceof Error) {
+          console.error('   Error message:', error.message)
+          console.error('   Stack:', error.stack)
+        }
+        console.log('📊 Using fallback rule-based analysis')
+        // Fallback to rule-based analysis
+        shouldBuy = this.determineShouldBuy(currentProduct, criteria, patterns)
+      }
+      
+      if (!usingGemini) {
+        console.warn('⚠️ Using fallback analysis (not AI-powered). Check Gemini API key and configuration.')
+      }
+      
+      // Use Gemini for alternative analysis if available
+      let aiRecommendations = recommendations
+      try {
+        if (alternativeProducts.length > 0) {
+          console.log('🤖 Calling Gemini for alternative analysis...')
+          const geminiAlternatives = await GeminiService.analyzeAlternatives(
+            currentProduct,
+            alternativeProducts,
+            criteria
+          )
+          console.log(`✅ Gemini analyzed ${geminiAlternatives.length} alternatives`)
+          // Convert Gemini results to ProductRecommendation format
+          aiRecommendations = geminiAlternatives.map((alt) => ({
+            product: alt.product,
+            score: alt.score,
+            reasons: alt.reasons,
+            savings: alt.savings,
+          }))
+        }
+      } catch (error) {
+        console.warn('⚠️ Gemini alternative analysis failed, using rule-based recommendations:', error)
+        // Keep original recommendations from RecommendationEngine
+      }
+      
+      console.log(`📊 Final recommendations: ${aiRecommendations.length} alternatives`)
+      aiRecommendations.forEach((rec, idx) => {
+        console.log(`   ${idx + 1}. ${rec.product.title} - ${rec.product.price} (${(rec.score * 100).toFixed(1)}% match)`)
+      })
+      
+      // Generate insights - this may fail, but we'll handle it
+      let insights = null
+      try {
+        insights = await this.generateInsights(currentProduct, criteria, patterns, alternativeProducts)
+        console.log('📊 Generated insights successfully')
+      } catch (error) {
+        console.error('❌ Insights generation failed completely:', error)
+        // Continue without insights - modal will still show other analysis
+        insights = null
+      }
+      
       return {
         currentProduct,
-        recommendations,
+        recommendations: aiRecommendations,
         userPatterns: patterns,
-        shouldBuy: this.determineShouldBuy(currentProduct, criteria, patterns),
+        shouldBuy,
+        insights,
       }
     }
 
+    // Even without userPreferences, we can still provide basic analysis
     return {
       currentProduct,
       recommendations,
       shouldBuy: null,
+      insights: null, // No insights without user preferences
     }
   }
 
@@ -141,11 +261,14 @@ export class ProductAnalyzer {
     // In production, this would call Amazon Product Advertising API
     // or scrape Amazon pages for similar products
     
-    // For demo, return sample similar products
+    // Generate more realistic product names based on the target product
+    const baseName = product.title.split(' ').slice(0, 3).join(' ') // Get first few words
+    
+    // For demo, return sample similar products with more realistic names
     return [
       {
         id: 'alt-1',
-        title: `${product.category} Alternative 1 - Budget Option`,
+        title: `${baseName} - Budget-Friendly Option`,
         price: `$${(product.priceNumeric * 0.7).toFixed(2)}`,
         priceNumeric: product.priceNumeric * 0.7,
         image: product.image,
@@ -155,7 +278,7 @@ export class ProductAnalyzer {
       },
       {
         id: 'alt-2',
-        title: `${product.category} Alternative 2 - Premium Quality`,
+        title: `${baseName} - Premium Edition`,
         price: `$${(product.priceNumeric * 1.2).toFixed(2)}`,
         priceNumeric: product.priceNumeric * 1.2,
         image: product.image,
@@ -165,7 +288,7 @@ export class ProductAnalyzer {
       },
       {
         id: 'alt-3',
-        title: `${product.category} Alternative 3 - Eco-Friendly`,
+        title: `${baseName} - Eco-Friendly Version`,
         price: `$${(product.priceNumeric * 0.9).toFixed(2)}`,
         priceNumeric: product.priceNumeric * 0.9,
         image: product.image,
@@ -175,6 +298,61 @@ export class ProductAnalyzer {
       },
     ]
   }
+
+  /**
+   * Generate AI-powered product insights
+   */
+  private static async generateInsights(
+    product: Product,
+    criteria: any,
+    patterns: any,
+    alternatives: Product[]
+  ) {
+    try {
+      console.log('🤖 Calling Gemini for product insights...')
+      console.log('   Product:', product.title)
+      console.log('   Criteria:', JSON.stringify(criteria, null, 2))
+      console.log('   Patterns:', JSON.stringify(patterns, null, 2))
+      console.log('   Alternatives count:', alternatives.length)
+      
+      const insights = await GeminiService.generateProductInsights(
+        product,
+        criteria,
+        patterns,
+        alternatives
+      )
+      
+      console.log('✅ Gemini insights received:', {
+        hasSummary: !!insights?.summary,
+        strengthsCount: insights?.strengths?.length || 0,
+        concernsCount: insights?.concerns?.length || 0,
+        hasValueAssessment: !!insights?.valueAssessment,
+        hasRecommendation: !!insights?.recommendation,
+        fullInsights: insights
+      })
+      
+      // Validate insights structure
+      if (!insights || typeof insights !== 'object') {
+        throw new Error('Invalid insights structure received from Gemini')
+      }
+      
+      if (!insights.summary || !insights.strengths || !insights.concerns) {
+        console.warn('⚠️ Insights missing required fields:', insights)
+        throw new Error('Insights missing required fields')
+      }
+      
+      return insights
+    } catch (error) {
+      console.error('❌ Failed to generate Gemini insights:', error)
+      if (error instanceof Error) {
+        console.error('   Error message:', error.message)
+        console.error('   Error stack:', error.stack)
+      }
+      // Re-throw to let caller handle - don't use fallback
+      throw error
+    }
+  }
+
 
   /**
    * Get a summary of user preferences for display
